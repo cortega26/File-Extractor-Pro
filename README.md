@@ -19,7 +19,7 @@ File Extractor Pro is a GUI application to extract and process files based on sp
 1. Clone the repository:
 
     ```sh
-    git clone https://github.com/cortega26/file-extractor-pro.git
+    git clone https://github.com/cortega26/File-Extractor-Pro.git
     cd file-extractor-pro
     ```
 
