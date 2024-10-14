@@ -1,0 +1,62 @@
+File Extractor Pro - User's Guide
+
+1. Introduction
+   File Extractor Pro is a powerful tool designed to extract content from multiple files based on specified criteria. It provides an efficient way to process large numbers of files, making it ideal for data analysis, content aggregation, and file management tasks.
+
+2. Getting Started
+   To start using File Extractor Pro:
+   - Launch the application.
+   - The main window will appear, presenting you with various options and settings.
+
+3. Main Interface
+   The main interface consists of several key elements:
+   - Folder Selection: Choose the folder containing the files you want to process.
+   - Output File Name: Specify the name of the file where extracted content will be saved.
+   - Mode Selection: Choose between Inclusion and Exclusion modes.
+   - File Extension Options: Select common file extensions or specify custom ones.
+   - Exclusion Settings: Define files or folders to exclude from processing.
+   - Extract Files Button: Initiates the extraction process.
+   - Progress Bar: Shows the progress of the current extraction task.
+   - Output Window: Displays messages and information about the extraction process.
+
+4. Extraction Process
+   To extract file contents:
+   1. Select the folder containing your files.
+   2. Choose the desired output file name.
+   3. Select the appropriate mode (Inclusion or Exclusion).
+   4. Check the file extensions you want to process.
+   5. Specify any exclusion criteria if needed.
+   6. Click the "Extract Files" button to start the process.
+   7. Monitor the progress in the progress bar and output window.
+
+5. Configuration Options
+   File Extractor Pro offers several configuration options:
+   - Include Hidden Files/Folders: Toggle this option to include or exclude hidden items.
+   - Custom Extensions: Add file extensions not listed in the common extensions.
+   - Exclude Files/Folders: Specify patterns for files or folders you want to exclude.
+   - Theme Toggle: Switch between light and dark themes for comfortable viewing.
+
+6. Generating Reports
+   After extraction, you can generate a detailed report:
+   1. Click the "Generate Report" button.
+   2. A JSON file named "extraction_report.json" will be created.
+   3. This report contains statistics about processed files, including total count, size, and file details.
+
+7. Troubleshooting
+   If you encounter issues:
+   - Ensure you have the necessary permissions to access the selected folders and files.
+   - Check that the specified output location is writable.
+   - Verify that your exclusion patterns are correctly formatted.
+   - Consult the application logs for detailed error messages.
+
+8. FAQ
+   Q: Can I process files from multiple folders?
+   A: Currently, you can only select one main folder, but the application will process all subfolders within it.
+
+   Q: Is there a limit to the number of files I can process?
+   A: There's no hard limit, but processing very large numbers of files may take considerable time and resources.
+
+   Q: Can I stop an extraction process once it's started?
+   A: The current version does not support stopping an ongoing extraction. Please wait for the process to complete.
+
+For further assistance or to report issues, please contact our support team.

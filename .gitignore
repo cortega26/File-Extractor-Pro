@@ -1,0 +1,6 @@
+*.json
+*.log
+*.txt
+!requirements.txt
+!user_guide.txt
+/backup
