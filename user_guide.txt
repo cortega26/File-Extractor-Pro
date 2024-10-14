@@ -58,5 +58,3 @@ File Extractor Pro - User's Guide
 
    Q: Can I stop an extraction process once it's started?
    A: The current version does not support stopping an ongoing extraction. Please wait for the process to complete.
-
-For further assistance or to report issues, please contact our support team.
