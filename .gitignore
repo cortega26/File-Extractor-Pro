@@ -1,6 +1,7 @@
 *.json
 *.log
 *.txt
+*.ini
 !requirements.txt
 !user_guide.txt
 /backup
