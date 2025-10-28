@@ -7,6 +7,8 @@ import queue
 from pathlib import Path
 from typing import List, Tuple
 
+import aiofiles
+
 from file_extractor import DEFAULT_EXCLUDE, FileProcessor
 
 
@@ -71,3 +73,54 @@ def test_extract_files_writes_expected_output_and_queue_messages(
     summary = processor.extraction_summary
     assert summary[".txt"]["count"] >= 1
     assert summary[str(data_file)]["hash"], "File hash should be recorded"
+
+
+def test_process_file_missing_emits_queue_error(tmp_path: Path) -> None:
+    """Processing a missing file should push an error message onto the queue."""
+
+    output_path = tmp_path / "output.txt"
+    missing_file = tmp_path / "absent.txt"
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    async def run() -> None:
+        async with aiofiles.open(output_path, "w", encoding="utf-8") as output:
+            await processor.process_file(str(missing_file), output)
+
+    asyncio.run(run())
+
+    assert not processor.processed_files, "No files should be marked as processed"
+
+    messages = []
+    while not message_queue.empty():
+        messages.append(message_queue.get_nowait())
+
+    assert any(level == "error" for level, _ in messages), "Queue must record the error"
+    assert output_path.read_text(encoding="utf-8") == ""
+
+
+def test_process_file_unicode_decode_error_reported(tmp_path: Path) -> None:
+    """Binary files that fail to decode should emit an error without crashing."""
+
+    binary_file = tmp_path / "binary.bin"
+    binary_file.write_bytes(b"\xff\xfe\x00\x00")
+    output_path = tmp_path / "output.txt"
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    async def run() -> None:
+        async with aiofiles.open(output_path, "w", encoding="utf-8") as output:
+            await processor.process_file(str(binary_file), output)
+
+    asyncio.run(run())
+
+    messages = []
+    while not message_queue.empty():
+        messages.append(message_queue.get_nowait())
+
+    assert any(
+        level == "error" and "Cannot decode" in message for level, message in messages
+    )
+    assert output_path.read_text(encoding="utf-8") == ""
