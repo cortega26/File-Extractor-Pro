@@ -405,7 +405,7 @@ class FileExtractorGUI:
         finally:
             self.master.after(QUEUE_ACTIVE_POLL_MS, self.check_queue)
 
-    async def update_progress(self, processed_files: int, total_files: int) -> None:
+    def update_progress(self, processed_files: int, total_files: int) -> None:
         """Update progress bar and status with error handling."""
 
         try:

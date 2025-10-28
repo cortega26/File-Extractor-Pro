@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from queue import Empty, Full, Queue
-from typing import Awaitable, Callable, Sequence
+from typing import Callable, Sequence
 
 from logging_utils import logger
-from processor import FileProcessor
+from processor import ExtractionCancelled, FileProcessor
 
-ProgressCallback = Callable[[int, int], Awaitable[None]]
+ProgressCallback = Callable[[int, int], None]
 
 
 class ExtractorService:
@@ -25,9 +24,9 @@ class ExtractorService:
     ) -> None:
         self.output_queue = output_queue or Queue(maxsize=queue_max_size)
         self._file_processor = file_processor_factory(self.output_queue)
-        self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._cancel_event = threading.Event()
 
     @property
     def file_processor(self) -> FileProcessor:
@@ -52,6 +51,7 @@ class ExtractorService:
             if self.is_running():
                 raise RuntimeError("Extraction already in progress")
 
+            self._cancel_event.clear()
             self._thread = threading.Thread(
                 target=self._run_extraction,
                 args=(
@@ -80,8 +80,11 @@ class ExtractorService:
         if not self.is_running():
             return
 
-        self.output_queue.put(("info", "Extraction cancellation requested"))
-        logger.info("Extraction cancellation requested by user")
+        if not self._cancel_event.is_set():
+            self.output_queue.put(("info", "Extraction cancellation requested"))
+            logger.info("Extraction cancellation requested by user")
+
+        self._cancel_event.set()
 
     def _run_extraction(
         self,
@@ -94,35 +97,33 @@ class ExtractorService:
         output_file_name: str,
         progress_callback: ProgressCallback,
     ) -> None:
-        """Execute extraction inside a dedicated event loop."""
+        """Execute extraction inside a dedicated worker thread."""
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self._loop = loop
         state_payload: dict[str, str] = {"status": "finished", "result": "success"}
         try:
-            loop.run_until_complete(
-                self._file_processor.extract_files(
-                    folder_path,
-                    mode,
-                    include_hidden,
-                    extensions,
-                    exclude_files,
-                    exclude_folders,
-                    output_file_name,
-                    progress_callback=progress_callback,
-                )
+            self._file_processor.extract_files(
+                folder_path,
+                mode,
+                include_hidden,
+                extensions,
+                exclude_files,
+                exclude_folders,
+                output_file_name,
+                progress_callback=progress_callback,
+                is_cancelled=self._cancel_event.is_set,
             )
+        except ExtractionCancelled:
+            logger.info("Extraction cancelled before completion")
+            state_payload["result"] = "cancelled"
+            self.output_queue.put(("info", "Extraction cancelled"))
         except Exception as exc:  # pragma: no cover - logged and surfaced to UI
             logger.error("Error in extraction worker: %s", exc)
             self.output_queue.put(("error", f"Extraction error: {exc}"))
             state_payload["result"] = "error"
             state_payload["message"] = str(exc)
         finally:
-            loop.close()
             self._publish_state_update(state_payload)
             with self._lock:
-                self._loop = None
                 self._thread = None
 
     def _publish_state_update(self, payload: dict[str, str]) -> None:

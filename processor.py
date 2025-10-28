@@ -7,12 +7,14 @@ import hashlib
 import os
 from datetime import datetime
 from queue import Empty, Full, Queue
-from typing import Any, Awaitable, Callable, Dict, Sequence, Set
-
-import aiofiles
+from typing import IO, Any, Callable, Dict, Sequence, Set
 
 from constants import CHUNK_SIZE, SPECIFICATION_FILES
 from logging_utils import logger
+
+
+class ExtractionCancelled(RuntimeError):
+    """Raised when an extraction run is cancelled mid-flight."""
 
 
 class FileProcessor:
@@ -46,24 +48,44 @@ class FileProcessor:
                     "Dropping status message after backpressure attempt: %s", message
                 )
 
-    async def process_specifications(
-        self, directory_path: str, output_file: Any
+    def process_specifications(
+        self,
+        directory_path: str,
+        output_file: IO[str],
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         """Process specification files first with enhanced error handling."""
+
         for spec_file in SPECIFICATION_FILES:
+            if is_cancelled and is_cancelled():
+                raise ExtractionCancelled("Extraction cancelled before specs processed")
+
             try:
                 file_path = os.path.join(directory_path, spec_file)
                 if os.path.exists(file_path) and os.path.isfile(file_path):
                     logger.info("Processing specification file: %s", spec_file)
-                    await self.process_file(file_path, output_file)
+                    self.process_file(
+                        file_path,
+                        output_file,
+                        is_cancelled=is_cancelled,
+                    )
                     self.processed_files.add(file_path)
+            except ExtractionCancelled:
+                raise
             except Exception as exc:
                 logger.error(
                     "Error processing specification file %s: %s", spec_file, exc
                 )
                 self._enqueue_message("error", f"Error processing {spec_file}: {exc}")
 
-    async def process_file(self, file_path: str, output_file: Any) -> None:
+    def process_file(
+        self,
+        file_path: str,
+        output_file: IO[str],
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> None:
         """Process individual file with improved error handling and memory management."""
         try:
             if not os.path.exists(file_path):
@@ -86,33 +108,43 @@ class FileProcessor:
             )
             start_position = 0
             if can_restore_output:
-                start_position = await output_file.tell()
+                start_position = output_file.tell()
 
             try:
                 header_written = False
 
-                async with aiofiles.open(file_path, "r", encoding="utf-8") as source:
+                with open(file_path, "r", encoding="utf-8") as source:
                     while True:
-                        chunk = await source.read(CHUNK_SIZE)
+                        if is_cancelled and is_cancelled():
+                            raise ExtractionCancelled(
+                                "Extraction cancelled during file processing"
+                            )
+
+                        chunk = source.read(CHUNK_SIZE)
                         if not chunk:
                             break
 
                         if not header_written:
-                            await output_file.write(f"{normalized_path}:\n")
+                            output_file.write(f"{normalized_path}:\n")
                             header_written = True
 
                         sha256.update(chunk.encode("utf-8"))
-                        await output_file.write(chunk)
+                        output_file.write(chunk)
 
                 if not header_written:
-                    await output_file.write(f"{normalized_path}:\n")
+                    output_file.write(f"{normalized_path}:\n")
 
-                await output_file.write("\n\n\n")
+                output_file.write("\n\n\n")
 
+            except ExtractionCancelled:
+                if can_restore_output:
+                    output_file.seek(start_position)
+                    output_file.truncate()
+                raise
             except Exception:
                 if can_restore_output:
-                    await output_file.seek(start_position)
-                    await output_file.truncate()
+                    output_file.seek(start_position)
+                    output_file.truncate()
                 raise
 
             file_hash = sha256.hexdigest()
@@ -148,7 +180,7 @@ class FileProcessor:
         except Exception as exc:
             logger.error("Error updating extraction summary: %s", exc)
 
-    async def extract_files(
+    def extract_files(
         self,
         folder_path: str,
         mode: str,
@@ -157,7 +189,9 @@ class FileProcessor:
         exclude_files: Sequence[str],
         exclude_folders: Sequence[str],
         output_file_name: str,
-        progress_callback: Callable[[int, int], Awaitable[None]],
+        *,
+        progress_callback: Callable[[int, int], None] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         """Extract files with improved error handling and progress reporting."""
 
@@ -168,10 +202,19 @@ class FileProcessor:
         try:
             output_file_abs = os.path.abspath(output_file_name)
 
-            async with aiofiles.open(output_file_name, "w", encoding="utf-8") as output:
-                await self.process_specifications(folder_path, output)
+            with open(output_file_name, "w", encoding="utf-8") as output:
+                self.process_specifications(
+                    folder_path,
+                    output,
+                    is_cancelled=is_cancelled,
+                )
 
                 for root, dirs, files in os.walk(folder_path):
+                    if is_cancelled and is_cancelled():
+                        raise ExtractionCancelled(
+                            "Extraction cancelled during traversal"
+                        )
+
                     if not include_hidden:
                         dirs[:] = [
                             directory
@@ -198,6 +241,11 @@ class FileProcessor:
                     ]
 
                     for file in files:
+                        if is_cancelled and is_cancelled():
+                            raise ExtractionCancelled(
+                                "Extraction cancelled while iterating files"
+                            )
+
                         file_path = os.path.join(root, file)
                         if os.path.abspath(file_path) == output_file_abs:
                             continue
@@ -217,10 +265,15 @@ class FileProcessor:
                         seen_paths.add(file_path)
                         total_files += 1
 
-                        await self.process_file(file_path, output)
+                        self.process_file(
+                            file_path,
+                            output,
+                            is_cancelled=is_cancelled,
+                        )
                         self.processed_files.add(file_path)
                         processed_count += 1
-                        await progress_callback(processed_count, total_files)
+                        if progress_callback:
+                            progress_callback(processed_count, total_files)
 
                 self._enqueue_message(
                     "info",
@@ -237,4 +290,4 @@ class FileProcessor:
             raise
 
 
-__all__ = ["FileProcessor"]
+__all__ = ["ExtractionCancelled", "FileProcessor"]
