@@ -25,9 +25,9 @@ can quickly see what has been addressed and what remains.
   - Next Action: Monitor progress reporting accuracy on very large directory trees.
 
 ## Should Have (Severity S2)
-- **Q-006 (S2 · Maintainability)** — Status: *Not Started*
-  - Notes: Configuration lacks schema validation and helpful errors.
-  - Next Action: Evaluate pydantic/attrs or lightweight custom validators.
+- **Q-006 (S2 · Maintainability)** — Status: *Done*
+  - Notes: Bulk updates now flow through `Config.update_settings`, ensuring atomic validation and persistence via the typed schema.
+  - Next Action: Monitor telemetry for unexpected configuration validation failures.
 - **Q-007 (S2 · Performance)** — Status: *Not Started*
   - Notes: Large files buffered fully before streaming to output file.
   - Next Action: Implement chunked write-through to avoid memory spikes.
