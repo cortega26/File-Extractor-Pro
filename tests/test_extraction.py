@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import queue
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import aiofiles
 
@@ -124,3 +125,49 @@ def test_process_file_unicode_decode_error_reported(tmp_path: Path) -> None:
         level == "error" and "Cannot decode" in message for level, message in messages
     )
     assert output_path.read_text(encoding="utf-8") == ""
+
+
+def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -> None:
+    """The extraction should traverse the filesystem only once for performance."""
+
+    (tmp_path / "keep.txt").write_text("data", encoding="utf-8")
+    (tmp_path / "skip.bin").write_text("binary", encoding="utf-8")
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    progress_updates: List[Tuple[int, int]] = []
+
+    async def progress_callback(processed: int, total: int) -> None:
+        progress_updates.append((processed, total))
+
+    walk_calls = 0
+    real_walk = os.walk
+
+    def counting_walk(*args: Any, **kwargs: Any):
+        nonlocal walk_calls
+        walk_calls += 1
+        yield from real_walk(*args, **kwargs)
+
+    monkeypatch.setattr(os, "walk", counting_walk)
+
+    async def run_extraction() -> None:
+        await processor.extract_files(
+            folder_path=str(tmp_path),
+            mode="inclusion",
+            include_hidden=False,
+            extensions=[".txt"],
+            exclude_files=list(DEFAULT_EXCLUDE),
+            exclude_folders=list(DEFAULT_EXCLUDE),
+            output_file_name=str(tmp_path / "out.txt"),
+            progress_callback=progress_callback,
+        )
+
+    asyncio.run(run_extraction())
+
+    assert walk_calls == 1, "os.walk should only be invoked once per extraction"
+
+    assert progress_updates, "Progress callback should report at least one update"
+    final_processed, final_total = progress_updates[-1]
+    assert final_total == 1
+    assert final_processed == final_total
