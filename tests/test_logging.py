@@ -43,9 +43,52 @@ def test_configure_logging_allows_injection(fresh_module: ModuleType) -> None:
     module = fresh_module
     handler = logging.StreamHandler()
 
-    configured_logger = module.configure_logging(level=logging.DEBUG, handler=handler)
+    configured_logger = module.configure_logging(
+        level=logging.DEBUG,
+        handler=handler,
+    )
 
     assert configured_logger is module.logger
     assert list(module.logger.handlers) == [handler]
     assert module.logger.level == logging.DEBUG
     assert module.logger.propagate is False
+
+    module.logger.handlers.clear()
+
+
+def test_configure_logging_supports_custom_logger(fresh_module: ModuleType) -> None:
+    module = fresh_module
+    handler = logging.StreamHandler()
+    custom_logger = logging.getLogger("custom")
+    existing_handler = logging.NullHandler()
+    custom_logger.addHandler(existing_handler)
+
+    configured_logger = module.configure_logging(
+        target_logger=custom_logger,
+        handler=handler,
+    )
+
+    assert configured_logger is custom_logger
+    assert list(custom_logger.handlers) == [handler]
+    assert custom_logger.propagate is False
+
+    custom_logger.handlers.clear()
+
+
+def test_configure_logging_appends_when_requested(fresh_module: ModuleType) -> None:
+    module = fresh_module
+    custom_logger = logging.getLogger("append")
+    retained_handler = logging.NullHandler()
+    custom_logger.addHandler(retained_handler)
+
+    module.configure_logging(
+        target_logger=custom_logger,
+        handler=logging.StreamHandler(),
+        replace_handlers=False,
+    )
+
+    handlers = list(custom_logger.handlers)
+    assert retained_handler in handlers
+    assert len(handlers) == 2
+
+    custom_logger.handlers.clear()

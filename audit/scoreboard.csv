@@ -7,4 +7,4 @@ Q-005,S1,Done,Traversal now streams processing within a single os.walk pass.,Mon
 Q-006,S2,In Progress,"Config.set now normalises typed values before validation, preventing silent acceptance of bad data.",Audit remaining entry points for direct config mutations.,2025-11-04
 Q-007,S2,Done,Chunked streaming avoids buffering large files; regression covered by tests.,Monitor memory footprint during high-volume runs.,2025-10-29
 Q-008,S2,Done,Bounded status queue and tuned polling cadence to keep UI responsive during heavy runs.,Monitor queue saturation metrics under load testing.,2025-10-30
-Q-009,S3,Not Started,Logging config installs handlers on import limiting flexibility.,Move logging setup to entry point and allow injection.,2025-10-28
+Q-009,S3,Done,Logging configuration now opt-in and supports dependency injection.,Monitor usage patterns from non-GUI consumers.,2025-11-05

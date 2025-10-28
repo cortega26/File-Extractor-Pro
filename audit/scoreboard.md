@@ -36,9 +36,9 @@ can quickly see what has been addressed and what remains.
   - Next Action: Monitor queue saturation metrics during stress runs.
 
 ## Nice to Have (Severity S3)
-- **Q-009 (S3 · Maintainability)** — Status: *Not Started*
-  - Notes: Logging config still initializes handlers on import, limiting flexibility.
-  - Next Action: Move logging setup to entry point and allow injection.
+- **Q-009 (S3 · Maintainability)** — Status: *Done*
+  - Notes: Logging configuration is now opt-in and supports dependency injection for custom consumers.
+  - Next Action: Monitor usage patterns from non-GUI consumers to ensure handler expectations remain consistent.
 
 ## Recently Completed
 - **Q-001** — Added regression coverage for cancellation queue messaging and reset behaviour.
