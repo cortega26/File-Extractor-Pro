@@ -38,6 +38,7 @@ class FileExtractorGUI:
             self._configure_responsiveness()
 
             self.extraction_in_progress = False
+            self._pending_status_message: str | None = None
 
             self.service = ExtractorService(
                 queue_max_size=STATUS_QUEUE_MAX_SIZE,
@@ -360,6 +361,7 @@ class FileExtractorGUI:
         self.progress_var.set(0)
         self.file_processor.extraction_summary.clear()
         self.extraction_in_progress = True
+        self._pending_status_message = None
         self.extract_button.config(state="disabled")
         self.status_var.set("Extraction in progress...")
         self.save_config()
@@ -431,6 +433,11 @@ class FileExtractorGUI:
                 elif message_type == "error":
                     self.output_text.insert(tk.END, "ERROR: " + message + "\n", "error")
                     logger.error(message)
+                elif message_type == "state":
+                    self._handle_service_state(message)
+                    continue
+                else:
+                    logger.debug("Received unknown message type: %s", message_type)
 
                 self.output_text.see(tk.END)
                 self.output_text.update_idletasks()
@@ -445,6 +452,30 @@ class FileExtractorGUI:
                 self.master.after(delay, self.check_queue)
             else:
                 self.reset_extraction_state()
+
+    def _handle_service_state(self, payload: Dict[str, str]) -> None:
+        """Handle terminal worker state notifications."""
+
+        status = payload.get("status")
+        result = payload.get("result")
+
+        if status != "finished":
+            logger.debug("Ignoring non-terminal state payload: %s", payload)
+            return
+
+        self.extraction_in_progress = False
+        if result == "success":
+            self._pending_status_message = "Extraction complete"
+        elif result == "error":
+            error_message = payload.get("message", "Extraction failed")
+            self._pending_status_message = f"Extraction failed: {error_message}"
+        else:
+            self._pending_status_message = "Extraction finished"
+
+        try:
+            self.extract_button.config(state="normal")
+        except Exception as exc:  # pragma: no cover - UI specific safeguard
+            logger.debug("Failed to update button state: %s", exc)
 
     def generate_report(self) -> None:
         """Generate extraction report with improved formatting and error handling."""
@@ -744,13 +775,16 @@ class FileExtractorGUI:
 
         self.extraction_in_progress = False
         self.extract_button.config(state="normal")
-        self.status_var.set("Ready")
+        status_message = self._pending_status_message or "Ready"
+        self._pending_status_message = None
+        self.status_var.set(status_message)
         self.progress_var.set(0)
 
     def cancel_extraction(self) -> None:
         """Cancel ongoing extraction with proper cleanup."""
 
         if self.extraction_in_progress:
+            self._pending_status_message = "Extraction cancelled"
             self.extraction_in_progress = False
             self.service.cancel()
             self.reset_extraction_state()

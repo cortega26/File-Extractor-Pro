@@ -50,6 +50,16 @@ def test_start_extraction_runs_worker(tmp_path):
     assert service.file_processor.called.is_set()
     assert progress_called.is_set()
 
+    state_messages = []
+    while not service.output_queue.empty():
+        message_type, payload = service.output_queue.get_nowait()
+        if message_type == "state":
+            state_messages.append(payload)
+
+    assert state_messages
+    assert state_messages[-1]["status"] == "finished"
+    assert state_messages[-1]["result"] == "success"
+
 
 def test_start_extraction_raises_when_running(tmp_path):
     barrier = threading.Event()
