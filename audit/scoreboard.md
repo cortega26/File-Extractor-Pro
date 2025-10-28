@@ -12,8 +12,8 @@ can quickly see what has been addressed and what remains.
   - Notes: Pytest suite now covers extraction flow, progress reporting, and queue cancellation messaging.
   - Next Action: Monitor queue behaviours during future async refactors.
 - **Q-002 (S1 · Architecture)** — Status: *In Progress*
-  - Notes: Drafted decoupling plan outlining service layer extraction from Tkinter GUI.
-  - Next Action: Create services package and move queue/loop management into an `ExtractorService` skeleton.
+  - Notes: `ExtractorService` now centralises queue lifecycle and event-loop management for background workers.
+  - Next Action: Continue migrating GUI orchestration into the service layer to support alternate front ends.
 - **Q-003 (S1 · Performance/Concurrency)** — Status: *Not Started*
   - Notes: Asyncio worker still intertwined with Tkinter thread lifecycle.
   - Next Action: Investigate cancellation behaviour and design a managed runner.

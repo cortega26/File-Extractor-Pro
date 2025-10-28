@@ -1,6 +1,6 @@
 ID,Severity,Status,Notes,Next Action,Last Updated
 Q-001,S0,Done,"Pytest suite covers extraction flow, progress, and cancellation queue messaging.",Monitor queue behaviour during async refactors.,2025-10-28
-Q-002,S1,In Progress,Decoupling plan drafted covering service layer extraction from Tkinter GUI.,Create services package and move queue/loop management into ExtractorService skeleton.,2025-10-28
+Q-002,S1,In Progress,ExtractorService now owns queue lifecycle and asyncio loop management.,Continue migrating GUI orchestration into services to enable alternate front ends.,2025-11-01
 Q-003,S1,Not Started,Async worker still intertwined with Tkinter lifecycle.,Investigate cancellation behaviour and managed runner design.,2025-10-28
 Q-004,S1,Not Started,Layout constraints assume large displays; needs responsive adjustments.,Prototype responsive layout adjustments.,2025-10-28
 Q-005,S1,Done,Traversal now streams processing within a single os.walk pass.,Monitor progress reporting on very large directories.,2025-10-31
