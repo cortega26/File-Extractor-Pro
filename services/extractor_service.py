@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from queue import Queue
+from queue import Empty, Full, Queue
 from typing import Awaitable, Callable, Sequence
 
 from logging_utils import logger
@@ -99,6 +99,7 @@ class ExtractorService:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
+        state_payload: dict[str, str] = {"status": "finished", "result": "success"}
         try:
             loop.run_until_complete(
                 self._file_processor.extract_files(
@@ -115,11 +116,34 @@ class ExtractorService:
         except Exception as exc:  # pragma: no cover - logged and surfaced to UI
             logger.error("Error in extraction worker: %s", exc)
             self.output_queue.put(("error", f"Extraction error: {exc}"))
+            state_payload["result"] = "error"
+            state_payload["message"] = str(exc)
         finally:
             loop.close()
+            self._publish_state_update(state_payload)
             with self._lock:
                 self._loop = None
                 self._thread = None
+
+    def _publish_state_update(self, payload: dict[str, str]) -> None:
+        """Publish a non-blocking service state update message."""
+
+        try:
+            self.output_queue.put_nowait(("state", payload))
+            return
+        except Full:
+            try:
+                self.output_queue.get_nowait()
+            except Empty:
+                logger.warning(
+                    "Failed to publish state update; queue remained full",
+                )
+                return
+
+        try:
+            self.output_queue.put_nowait(("state", payload))
+        except Full:
+            logger.warning("Dropping state update due to saturated queue")
 
 
 __all__ = ["ExtractorService", "ProgressCallback"]
