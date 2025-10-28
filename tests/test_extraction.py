@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import queue
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any, List, Tuple
 
 import aiofiles
 
+from constants import CHUNK_SIZE
 from file_extractor import DEFAULT_EXCLUDE, FileProcessor
 
 
@@ -125,6 +127,36 @@ def test_process_file_unicode_decode_error_reported(tmp_path: Path) -> None:
         level == "error" and "Cannot decode" in message for level, message in messages
     )
     assert output_path.read_text(encoding="utf-8") == ""
+
+
+def test_process_file_streams_content_without_buffering(tmp_path: Path) -> None:
+    """Large files should be streamed to the output file without buffering fully."""
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    large_file = tmp_path / "large.txt"
+    repeated_block = "abcdefghij" * (CHUNK_SIZE // 10 + 5)
+    large_file.write_text(repeated_block, encoding="utf-8")
+
+    output_path = tmp_path / "output.txt"
+
+    async def run() -> None:
+        async with aiofiles.open(output_path, "w", encoding="utf-8") as output:
+            await processor.process_file(str(large_file), output)
+
+    asyncio.run(run())
+
+    output_text = output_path.read_text(encoding="utf-8")
+    normalized_path = str(large_file.resolve()).replace(os.path.sep, "/")
+    assert output_text.startswith(f"{normalized_path}:\n")
+    assert output_text.endswith("\n\n\n"), "Output should include trailing separators"
+    assert repeated_block in output_text, "File content should be present in the output"
+
+    expected_hash = hashlib.sha256(repeated_block.encode("utf-8")).hexdigest()
+    summary_entry = processor.extraction_summary[str(large_file)]
+    assert summary_entry["hash"] == expected_hash
+    assert summary_entry["size"] == len(repeated_block)
 
 
 def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -> None:
