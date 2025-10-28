@@ -6,7 +6,7 @@ import fnmatch
 import hashlib
 import os
 from datetime import datetime
-from queue import Queue
+from queue import Empty, Full, Queue
 from typing import Any, Awaitable, Callable, Dict, List, Set
 
 import aiofiles
@@ -24,6 +24,28 @@ class FileProcessor:
         self.processed_files: Set[str] = set()
         self._cache: Dict[str, Any] = {}
 
+    def _enqueue_message(self, level: str, message: str) -> None:
+        """Safely enqueue status messages without blocking the worker thread."""
+
+        try:
+            self.output_queue.put_nowait((level, message))
+        except Full:
+            try:
+                self.output_queue.get_nowait()
+            except Empty:
+                logger.warning(
+                    "Status queue saturated and could not free space for message: %s",
+                    message,
+                )
+                return
+
+            try:
+                self.output_queue.put_nowait((level, message))
+            except Full:
+                logger.warning(
+                    "Dropping status message after backpressure attempt: %s", message
+                )
+
     async def process_specifications(
         self, directory_path: str, output_file: Any
     ) -> None:
@@ -39,7 +61,7 @@ class FileProcessor:
                 logger.error(
                     "Error processing specification file %s: %s", spec_file, exc
                 )
-                self.output_queue.put(("error", f"Error processing {spec_file}: {exc}"))
+                self._enqueue_message("error", f"Error processing {spec_file}: {exc}")
 
     async def process_file(self, file_path: str, output_file: Any) -> None:
         """Process individual file with improved error handling and memory management."""
@@ -101,10 +123,10 @@ class FileProcessor:
 
         except (UnicodeDecodeError, UnicodeError) as exc:
             logger.warning("Unicode decode error for %s: %s", file_path, exc)
-            self.output_queue.put(("error", f"Cannot decode file {file_path}: {exc}"))
+            self._enqueue_message("error", f"Cannot decode file {file_path}: {exc}")
         except Exception as exc:
             logger.error("Error processing file %s: %s", file_path, exc)
-            self.output_queue.put(("error", f"Error processing {file_path}: {exc}"))
+            self._enqueue_message("error", f"Error processing {file_path}: {exc}")
 
     def _update_extraction_summary(
         self, file_ext: str, file_path: str, file_size: int, file_hash: str
@@ -199,18 +221,18 @@ class FileProcessor:
                     processed_count += 1
                     await progress_callback(processed_count, total_files)
 
-                self.output_queue.put(
+                self._enqueue_message(
+                    "info",
                     (
-                        "info",
                         f"Extraction complete. Processed {processed_count} files. "
-                        f"Results written to {output_file_name}.",
-                    )
+                        f"Results written to {output_file_name}."
+                    ),
                 )
 
         except Exception as exc:
             error_msg = f"Error during extraction: {exc}"
             logger.error(error_msg)
-            self.output_queue.put(("error", error_msg))
+            self._enqueue_message("error", error_msg)
             raise
 
 

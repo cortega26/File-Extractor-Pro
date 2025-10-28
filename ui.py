@@ -17,6 +17,10 @@ from constants import COMMON_EXTENSIONS
 from logging_utils import logger
 from processor import FileProcessor
 
+STATUS_QUEUE_MAX_SIZE = 256
+QUEUE_IDLE_POLL_MS = 80
+QUEUE_ACTIVE_POLL_MS = 20
+
 
 class FileExtractorGUI:
     """Enhanced GUI with improved responsiveness and error handling."""
@@ -38,7 +42,7 @@ class FileExtractorGUI:
             self.loop = None
             self.thread = None
 
-            self.output_queue = queue.Queue()
+            self.output_queue = queue.Queue(maxsize=STATUS_QUEUE_MAX_SIZE)
             self.file_processor = FileProcessor(self.output_queue)
 
             self.apply_theme(self.config.get("theme", "light"))
@@ -323,7 +327,7 @@ class FileExtractorGUI:
             daemon=True,
         )
         self.thread.start()
-        self.master.after(100, self.check_queue)
+        self.master.after(QUEUE_ACTIVE_POLL_MS, self.check_queue)
 
     def run_extraction_thread(self, *args) -> None:
         """Run the extraction process in a separate thread."""
@@ -358,9 +362,11 @@ class FileExtractorGUI:
     def check_queue(self) -> None:
         """Check message queue with improved error handling."""
 
+        drained_any = False
         try:
             while True:
                 message_type, message = self.output_queue.get_nowait()
+                drained_any = True
                 if message_type == "info":
                     self.output_text.insert(tk.END, message + "\n", "info")
                 elif message_type == "error":
@@ -374,7 +380,8 @@ class FileExtractorGUI:
             pass
         finally:
             if self.extraction_in_progress:
-                self.master.after(100, self.check_queue)
+                delay = QUEUE_ACTIVE_POLL_MS if drained_any else QUEUE_IDLE_POLL_MS
+                self.master.after(delay, self.check_queue)
             else:
                 self.reset_extraction_state()
 

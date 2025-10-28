@@ -10,6 +10,7 @@ import platform
 import sys
 import tkinter as tk
 from tkinter import messagebox, ttk
+from types import TracebackType
 
 from config_manager import AppSettings, Config, ConfigValidationError
 from constants import (
@@ -26,7 +27,7 @@ from ui import FileExtractorGUI
 def handle_uncaught_exception(
     exc_type: type[BaseException],
     exc_value: BaseException,
-    exc_traceback: object,
+    exc_traceback: TracebackType | None,
 ) -> None:
     """Log uncaught exceptions and present a user-friendly notification."""
 
@@ -97,7 +98,7 @@ def main() -> None:
         except tk.TclError as exc:  # pragma: no cover - UI environment specific
             logger.warning("Unable to apply ttk theme: %s", exc)
 
-        app = FileExtractorGUI(root)
+        FileExtractorGUI(root)
         root.mainloop()
 
     except Exception as exc:

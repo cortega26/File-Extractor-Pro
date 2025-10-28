@@ -31,9 +31,9 @@ can quickly see what has been addressed and what remains.
 - **Q-007 (S2 · Performance)** — Status: *Not Started*
   - Notes: Large files buffered fully before streaming to output file.
   - Next Action: Implement chunked write-through to avoid memory spikes.
-- **Q-008 (S2 · UX/Performance)** — Status: *Not Started*
-  - Notes: Progress queue can flood UI, causing lag under heavy load.
-  - Next Action: Prototype bounded queue with adaptive polling.
+- **Q-008 (S2 · UX/Performance)** — Status: *Done*
+  - Notes: Status queue now bounded with adaptive polling to keep the UI responsive under sustained load.
+  - Next Action: Monitor queue saturation metrics during stress runs.
 
 ## Nice to Have (Severity S3)
 - **Q-009 (S3 · Maintainability)** — Status: *Not Started*

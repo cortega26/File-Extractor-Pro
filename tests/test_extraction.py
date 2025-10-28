@@ -203,3 +203,20 @@ def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -
     final_processed, final_total = progress_updates[-1]
     assert final_total == 1
     assert final_processed == final_total
+
+
+def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
+    """Processor should drop the oldest message when the status queue is full."""
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue(maxsize=2)
+    processor = FileProcessor(message_queue)
+
+    message_queue.put(("info", "oldest"))
+    message_queue.put(("info", "older"))
+
+    processor._enqueue_message("info", "new message")
+
+    contents = [message_queue.get_nowait(), message_queue.get_nowait()]
+
+    assert ("info", "new message") in contents
+    assert all(message != ("info", "oldest") for message in contents)
