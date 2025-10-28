@@ -111,10 +111,13 @@ class FileProcessor:
     ) -> None:
         """Extract files with improved error handling and progress reporting."""
 
-        total_files = 0
-        processed_files = 0
+        processed_count = 0
+        matched_files: List[str] = []
+        seen_paths: Set[str] = set()
 
         try:
+            output_file_abs = os.path.abspath(output_file_name)
+
             async with aiofiles.open(output_file_name, "w", encoding="utf-8") as output:
                 await self.process_specifications(folder_path, output)
 
@@ -146,58 +149,32 @@ class FileProcessor:
 
                     for file in files:
                         file_path = os.path.join(root, file)
-                        if file_path in self.processed_files:
+                        if os.path.abspath(file_path) == output_file_abs:
+                            continue
+                        if file_path in self.processed_files or file_path in seen_paths:
                             continue
 
                         file_ext = os.path.splitext(file)[1]
                         if (mode == "inclusion" and file_ext in extensions) or (
                             mode == "exclusion" and file_ext not in extensions
                         ):
-                            total_files += 1
+                            seen_paths.add(file_path)
+                            matched_files.append(file_path)
 
-                for root, dirs, files in os.walk(folder_path):
-                    if not include_hidden:
-                        dirs[:] = [
-                            directory
-                            for directory in dirs
-                            if not directory.startswith(".")
-                        ]
-                        files = [file for file in files if not file.startswith(".")]
+                total_files = len(matched_files)
 
-                    dirs[:] = [
-                        directory
-                        for directory in dirs
-                        if not any(
-                            fnmatch.fnmatch(directory, pattern)
-                            for pattern in exclude_folders
-                        )
-                    ]
-
-                    files = [
-                        file
-                        for file in files
-                        if not any(
-                            fnmatch.fnmatch(file, pattern) for pattern in exclude_files
-                        )
-                    ]
-
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        if file_path in self.processed_files:
-                            continue
-
-                        file_ext = os.path.splitext(file)[1]
-                        if (mode == "inclusion" and file_ext in extensions) or (
-                            mode == "exclusion" and file_ext not in extensions
-                        ):
-                            await self.process_file(file_path, output)
-                            processed_files += 1
-                            await progress_callback(processed_files, total_files)
+                for file_path in matched_files:
+                    if os.path.abspath(file_path) == output_file_abs:
+                        continue
+                    await self.process_file(file_path, output)
+                    self.processed_files.add(file_path)
+                    processed_count += 1
+                    await progress_callback(processed_count, total_files)
 
                 self.output_queue.put(
                     (
                         "info",
-                        f"Extraction complete. Processed {processed_files} files. "
+                        f"Extraction complete. Processed {processed_count} files. "
                         f"Results written to {output_file_name}.",
                     )
                 )
