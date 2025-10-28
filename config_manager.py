@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import configparser
+import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Tuple
+from typing import Any, Dict, Mapping, Sequence, Tuple
 
 from constants import DEFAULT_EXCLUDE
 from logging_utils import logger
@@ -31,6 +32,7 @@ class AppSettings:
     theme: str = "light"
     batch_size: int = 100
     max_memory_mb: int = 512
+    recent_folders: Tuple[str, ...] = field(default_factory=tuple)
 
     _VALID_MODES: Tuple[str, ...] = ("inclusion", "exclusion")
     _VALID_THEMES: Tuple[str, ...] = ("light", "dark")
@@ -49,6 +51,7 @@ class AppSettings:
             "theme": defaults.theme,
             "batch_size": defaults.batch_size,
             "max_memory_mb": defaults.max_memory_mb,
+            "recent_folders": defaults.recent_folders,
         }
 
         for key, value in raw.items():
@@ -82,6 +85,23 @@ class AppSettings:
             except ValueError as exc:  # pragma: no cover - defensive guard
                 raise ConfigValidationError(f"{key} must be an integer") from exc
             return coerced
+        if key == "recent_folders":
+            try:
+                parsed_value = json.loads(value) if value else []
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "Invalid JSON for recent_folders configuration: %s", value
+                )
+                raise ConfigValidationError(
+                    "recent_folders must be valid JSON"
+                ) from exc
+            if not isinstance(parsed_value, list) or not all(
+                isinstance(item, str) for item in parsed_value
+            ):
+                raise ConfigValidationError(
+                    "recent_folders must be a JSON array of strings"
+                )
+            return tuple(parsed_value)
         return value.strip()
 
     def _validate(self) -> None:
@@ -101,6 +121,11 @@ class AppSettings:
             raise ConfigValidationError("batch_size must be greater than zero")
         if self.max_memory_mb <= 0:
             raise ConfigValidationError("max_memory_mb must be greater than zero")
+        if len(self.recent_folders) > 10:
+            raise ConfigValidationError("recent_folders cannot exceed 10 entries")
+        for folder in self.recent_folders:
+            if not isinstance(folder, str) or not folder:
+                raise ConfigValidationError("recent_folders entries must be strings")
 
     def to_raw_dict(self) -> Dict[str, str]:
         """Serialize settings back to string values for configparser."""
@@ -114,6 +139,7 @@ class AppSettings:
             "theme": self.theme,
             "batch_size": str(self.batch_size),
             "max_memory_mb": str(self.max_memory_mb),
+            "recent_folders": json.dumps(list(self.recent_folders)),
         }
 
 
@@ -187,6 +213,36 @@ class Config:
         """Retrieve a typed configuration value."""
 
         return getattr(self.settings, key, fallback)
+
+    def get_recent_folders(self) -> Tuple[str, ...]:
+        """Return the recent folders history."""
+
+        return self.settings.recent_folders
+
+    def update_recent_folders(self, folder_path: str, limit: int = 5) -> None:
+        """Add a folder path to the recent history and persist it.
+
+        Args:
+            folder_path: The folder path to add.
+            limit: Maximum number of folders to retain (clamped between 1 and 10).
+        """
+
+        sanitized_path = folder_path.strip()
+        if not sanitized_path:
+            raise ValueError("folder_path cannot be empty")
+
+        effective_limit = max(1, min(limit, 10))
+
+        current: Sequence[str] = self.get_recent_folders()
+        updated = [path for path in current if path != sanitized_path]
+        updated.insert(0, sanitized_path)
+        trimmed = tuple(updated[:effective_limit])
+
+        raw_values = self.settings.to_raw_dict()
+        raw_values["recent_folders"] = json.dumps(list(trimmed))
+        self.settings = AppSettings.from_raw(raw_values)
+        self.config["DEFAULT"] = self.settings.to_raw_dict()
+        self.save()
 
     def set(self, key: str, value: str) -> None:
         """Set configuration value with validation."""

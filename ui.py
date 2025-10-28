@@ -10,7 +10,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import Dict
+from typing import Callable, Dict
 
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
@@ -54,7 +54,10 @@ class FileExtractorGUI:
     def setup_variables(self) -> None:
         """Initialize Tkinter variables."""
 
-        self.folder_path = tk.StringVar()
+        self.recent_folders = list(self.config.get_recent_folders())
+        initial_folder = self.recent_folders[0] if self.recent_folders else ""
+
+        self.folder_path = tk.StringVar(value=initial_folder)
         self.output_file_name = tk.StringVar(value=self.config.get("output_file"))
         self.mode = tk.StringVar(value=self.config.get("mode", "inclusion"))
         self.include_hidden = tk.BooleanVar(
@@ -91,9 +94,11 @@ class FileExtractorGUI:
         ttk.Entry(self.main_frame, textvariable=self.folder_path, width=50).grid(
             row=0, column=1, sticky=tk.W + tk.E
         )
-        ttk.Button(self.main_frame, text="Browse", command=self.browse_folder).grid(
-            row=0, column=2, padx=5
-        )
+        self.browse_button = ttk.Menubutton(self.main_frame, text="Browse")
+        self.browse_button.grid(row=0, column=2, padx=5)
+        self.browse_menu = tk.Menu(self.browse_button, tearoff=0)
+        self.browse_button["menu"] = self.browse_menu
+        self._refresh_recent_folders_menu()
 
         ttk.Label(self.main_frame, text="Output File:").grid(
             row=1, column=0, sticky=tk.W
@@ -246,18 +251,62 @@ class FileExtractorGUI:
         self.master.bind("<Escape>", lambda event: self.cancel_extraction())
 
     def browse_folder(self) -> None:
-        """Handle folder selection with improved error checking."""
+        """Open a folder selection dialog and update recent history."""
 
         try:
             folder_selected = filedialog.askdirectory()
             if folder_selected:
-                self.folder_path.set(folder_selected)
-                folder_name = os.path.basename(folder_selected)
-                self.output_file_name.set(f"{folder_name}.txt")
-                logger.info("Selected folder: %s", folder_selected)
+                self._set_selected_folder(folder_selected)
         except Exception as exc:
             logger.error("Error selecting folder: %s", exc)
             messagebox.showerror("Error", f"Error selecting folder: {exc}")
+
+    def _set_selected_folder(self, folder_selected: str) -> None:
+        """Set the selected folder, update config, and refresh UI."""
+
+        self.folder_path.set(folder_selected)
+        folder_name = os.path.basename(folder_selected)
+        self.output_file_name.set(f"{folder_name}.txt")
+        self._update_recent_folders(folder_selected)
+        self.save_config()
+        logger.info("Selected folder: %s", folder_selected)
+
+    def _update_recent_folders(self, folder_selected: str) -> None:
+        """Maintain recent folders state and refresh the dropdown menu."""
+
+        try:
+            self.config.update_recent_folders(folder_selected)
+        except ValueError as exc:
+            logger.error("Failed to update recent folders: %s", exc)
+            return
+
+        self.recent_folders = list(self.config.get_recent_folders())
+        self._refresh_recent_folders_menu()
+
+    def _refresh_recent_folders_menu(self) -> None:
+        """Refresh the menu for recent folders."""
+
+        if not hasattr(self, "browse_menu"):
+            return
+
+        self.browse_menu.delete(0, tk.END)
+        self.browse_menu.add_command(label="Select Folder…", command=self.browse_folder)
+        if self.recent_folders:
+            self.browse_menu.add_separator()
+        for folder in self.recent_folders:
+            display_label = folder if len(folder) <= 60 else f"…{folder[-57:]}"
+            self.browse_menu.add_command(
+                label=display_label,
+                command=self._create_recent_folder_command(folder),
+            )
+
+    def _create_recent_folder_command(self, path: str) -> Callable[[], None]:
+        """Create a callback that selects the provided folder when invoked."""
+
+        def _command() -> None:
+            self._set_selected_folder(path)
+
+        return _command
 
     def execute(self) -> None:
         """Execute file extraction with improved error handling."""

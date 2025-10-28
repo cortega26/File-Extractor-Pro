@@ -4,7 +4,7 @@ File Extractor Pro is a GUI application to extract and process files based on sp
 
 ## Features
 
-- Select a folder to extract files from.
+- Select a folder to extract files from with a dropdown history of recent paths.
 - Choose between inclusion or exclusion mode for file extensions.
 - Include or exclude hidden files and folders.
 - Specify custom file extensions to include or exclude.
@@ -65,6 +65,7 @@ startup to prevent invalid modes or resource limits from causing runtime errors.
 | `theme`          | string  | `light`      | No       | UI theme preference. Must be `light` or `dark`. |
 | `batch_size`     | integer | `100`        | No       | Number of files processed before UI progress updates. Must be greater than zero. |
 | `max_memory_mb`  | integer | `512`        | No       | Soft memory cap used for processing safeguards. Must be greater than zero. |
+| `recent_folders` | list    | `[]`         | No       | JSON array tracking the most recently selected folders for quick access in the Browse menu. |
 
 ## Requirements
 
