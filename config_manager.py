@@ -244,12 +244,17 @@ class Config:
         self.config["DEFAULT"] = self.settings.to_raw_dict()
         self.save()
 
-    def set(self, key: str, value: str) -> None:
-        """Set configuration value with validation."""
+    def set(self, key: str, value: Any) -> None:
+        """Set configuration value with validation.
+
+        The method accepts both raw string values and typed representations. Values
+        are normalised prior to validation to ensure consistency with the schema.
+        """
+
         try:
             if hasattr(self.settings, key):
                 raw_values = self.settings.to_raw_dict()
-                raw_values[key] = str(value)
+                raw_values[key] = self._normalise_value_for_storage(key, value)
                 self.settings = AppSettings.from_raw(raw_values)
                 self.config["DEFAULT"] = self.settings.to_raw_dict()
             else:
@@ -261,6 +266,53 @@ class Config:
         except Exception as exc:  # pragma: no cover - unexpected failure
             logger.error("Error setting config value %s: %s", key, exc)
             raise
+
+    def _normalise_value_for_storage(self, key: str, value: Any) -> str:
+        """Convert a typed value into its persisted string representation."""
+
+        if key in {"exclude_files", "exclude_folders"}:
+            if isinstance(value, str):
+                return value
+            if isinstance(value, (list, tuple, set)):
+                if not all(isinstance(part, str) for part in value):
+                    raise ConfigValidationError(f"{key} entries must be strings")
+                parts = [part.strip() for part in value if part.strip()]
+                return ", ".join(parts)
+            raise ConfigValidationError(
+                f"{key} must be a comma-separated string or sequence of strings"
+            )
+
+        if key == "include_hidden":
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if isinstance(value, str):
+                return value
+            raise ConfigValidationError("include_hidden must be a boolean or string")
+
+        if key in {"batch_size", "max_memory_mb"}:
+            if isinstance(value, int):
+                return str(value)
+            if isinstance(value, str):
+                return value
+            raise ConfigValidationError(f"{key} must be an integer or numeric string")
+
+        if key == "recent_folders":
+            if isinstance(value, str):
+                return value
+            if isinstance(value, (list, tuple)):
+                if not all(isinstance(item, str) for item in value):
+                    raise ConfigValidationError(
+                        "recent_folders sequence must contain only strings"
+                    )
+                return json.dumps(list(dict.fromkeys(value)))
+            raise ConfigValidationError(
+                "recent_folders must be a JSON string or sequence of strings"
+            )
+
+        if isinstance(value, str):
+            return value
+
+        return str(value)
 
 
 __all__ = ["AppSettings", "Config", "ConfigValidationError"]

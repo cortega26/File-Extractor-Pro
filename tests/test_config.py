@@ -77,6 +77,26 @@ def test_setting_invalid_value_raises_and_preserves_existing(tmp_path: Path) -> 
     assert config.get("mode") == "inclusion"
 
 
+def test_setting_typed_values_normalises_and_validates(tmp_path: Path) -> None:
+    """Typed setter values should be normalised prior to persistence."""
+
+    config_path = tmp_path / "config.ini"
+    Config = load_config_class()
+    config = Config(str(config_path))
+
+    config.set("include_hidden", True)
+    config.set("batch_size", 256)
+    config.set("exclude_files", [".git", "__pycache__", " "])
+    config.set("recent_folders", ("/tmp/a", "/tmp/a", "/tmp/b"))
+
+    assert config.get("include_hidden") == "true"
+    assert config.get("batch_size") == "256"
+    assert config.get("exclude_files") == ".git, __pycache__"
+
+    recent = config.get_recent_folders()
+    assert recent == ("/tmp/a", "/tmp/b")
+
+
 def test_recent_folders_round_trip(tmp_path: Path) -> None:
     """Updating recent folders should persist and remove duplicates."""
 
