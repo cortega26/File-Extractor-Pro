@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import threading
+import time
 from queue import Queue
 
 import pytest
 
+from processor import ExtractionCancelled
 from services.extractor_service import ExtractorService
 
 
@@ -17,15 +19,15 @@ class DummyFileProcessor:
         self.output_queue = output_queue
         self.called = threading.Event()
 
-    async def extract_files(self, *args, progress_callback):  # type: ignore[override]
-        await progress_callback(1, 1)
+    def extract_files(self, *args, progress_callback, **kwargs):  # type: ignore[override]
+        progress_callback(1, 1)
         self.called.set()
 
 
 def test_start_extraction_runs_worker(tmp_path):
     progress_called = threading.Event()
 
-    async def progress_callback(processed: int, total: int) -> None:
+    def progress_callback(processed: int, total: int) -> None:
         progress_called.set()
 
     service = ExtractorService(
@@ -65,11 +67,11 @@ def test_start_extraction_raises_when_running(tmp_path):
     barrier = threading.Event()
 
     class BlockingFileProcessor(DummyFileProcessor):
-        async def extract_files(self, *args, progress_callback):  # type: ignore[override]
-            await progress_callback(0, 0)
+        def extract_files(self, *args, progress_callback, **kwargs):  # type: ignore[override]
+            progress_callback(0, 0)
             barrier.wait()
 
-    async def noop_progress(*_args):
+    def noop_progress(*_args):
         return None
 
     service = ExtractorService(file_processor_factory=BlockingFileProcessor)
@@ -97,3 +99,54 @@ def test_start_extraction_raises_when_running(tmp_path):
         )
 
     barrier.set()
+
+
+def test_cancel_extraction_emits_cancel_state(tmp_path):
+    proceed = threading.Event()
+
+    class CancellableProcessor(DummyFileProcessor):
+        def extract_files(self, *args, progress_callback, is_cancelled, **kwargs):  # type: ignore[override]
+            progress_callback(0, 0)
+            proceed.set()
+            while not is_cancelled():
+                time.sleep(0.01)
+            raise ExtractionCancelled("cancelled")
+
+    def noop_progress(*_args):
+        return None
+
+    service = ExtractorService(
+        file_processor_factory=CancellableProcessor,
+        output_queue=Queue(maxsize=4),
+    )
+
+    thread = service.start_extraction(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=[],
+        exclude_files=[],
+        exclude_folders=[],
+        output_file_name=str(tmp_path / "out.txt"),
+        progress_callback=noop_progress,
+    )
+
+    proceed.wait(timeout=1)
+    service.cancel()
+    thread.join(timeout=2)
+
+    assert not service.is_running()
+
+    state_payloads = []
+    info_messages = []
+    while not service.output_queue.empty():
+        kind, payload = service.output_queue.get_nowait()
+        if kind == "state":
+            state_payloads.append(payload)
+        elif kind == "info":
+            info_messages.append(payload)
+
+    assert any("cancellation requested" in message for message in info_messages)
+    assert any("Extraction cancelled" == message for message in info_messages)
+    assert state_payloads
+    assert state_payloads[-1]["result"] == "cancelled"

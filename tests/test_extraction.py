@@ -1,15 +1,12 @@
-"""Tests for the asynchronous file extraction workflow."""
+"""Tests for the file extraction workflow."""
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import os
 import queue
 from pathlib import Path
 from typing import Any, List, Tuple
-
-import aiofiles
 
 from constants import CHUNK_SIZE
 from file_extractor import DEFAULT_EXCLUDE, FileProcessor
@@ -33,22 +30,19 @@ def test_extract_files_writes_expected_output_and_queue_messages(
 
     progress_updates: List[Tuple[int, int]] = []
 
-    async def progress_callback(processed: int, total: int) -> None:
+    def progress_callback(processed: int, total: int) -> None:
         progress_updates.append((processed, total))
 
-    async def run_extraction() -> None:
-        await processor.extract_files(
-            folder_path=str(tmp_path),
-            mode="inclusion",
-            include_hidden=False,
-            extensions=[".txt", ".md"],
-            exclude_files=list(DEFAULT_EXCLUDE),
-            exclude_folders=list(DEFAULT_EXCLUDE),
-            output_file_name=str(output_path),
-            progress_callback=progress_callback,
-        )
-
-    asyncio.run(run_extraction())
+    processor.extract_files(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=[".txt", ".md"],
+        exclude_files=list(DEFAULT_EXCLUDE),
+        exclude_folders=list(DEFAULT_EXCLUDE),
+        output_file_name=str(output_path),
+        progress_callback=progress_callback,
+    )
 
     assert output_path.exists(), "Extraction should create the output file"
 
@@ -87,11 +81,8 @@ def test_process_file_missing_emits_queue_error(tmp_path: Path) -> None:
     message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
     processor = FileProcessor(message_queue)
 
-    async def run() -> None:
-        async with aiofiles.open(output_path, "w", encoding="utf-8") as output:
-            await processor.process_file(str(missing_file), output)
-
-    asyncio.run(run())
+    with open(output_path, "w", encoding="utf-8") as output:
+        processor.process_file(str(missing_file), output)
 
     assert not processor.processed_files, "No files should be marked as processed"
 
@@ -113,11 +104,8 @@ def test_process_file_unicode_decode_error_reported(tmp_path: Path) -> None:
     message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
     processor = FileProcessor(message_queue)
 
-    async def run() -> None:
-        async with aiofiles.open(output_path, "w", encoding="utf-8") as output:
-            await processor.process_file(str(binary_file), output)
-
-    asyncio.run(run())
+    with open(output_path, "w", encoding="utf-8") as output:
+        processor.process_file(str(binary_file), output)
 
     messages = []
     while not message_queue.empty():
@@ -141,11 +129,8 @@ def test_process_file_streams_content_without_buffering(tmp_path: Path) -> None:
 
     output_path = tmp_path / "output.txt"
 
-    async def run() -> None:
-        async with aiofiles.open(output_path, "w", encoding="utf-8") as output:
-            await processor.process_file(str(large_file), output)
-
-    asyncio.run(run())
+    with open(output_path, "w", encoding="utf-8") as output:
+        processor.process_file(str(large_file), output)
 
     output_text = output_path.read_text(encoding="utf-8")
     normalized_path = str(large_file.resolve()).replace(os.path.sep, "/")
@@ -170,7 +155,7 @@ def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -
 
     progress_updates: List[Tuple[int, int]] = []
 
-    async def progress_callback(processed: int, total: int) -> None:
+    def progress_callback(processed: int, total: int) -> None:
         progress_updates.append((processed, total))
 
     walk_calls = 0
@@ -183,19 +168,16 @@ def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -
 
     monkeypatch.setattr(os, "walk", counting_walk)
 
-    async def run_extraction() -> None:
-        await processor.extract_files(
-            folder_path=str(tmp_path),
-            mode="inclusion",
-            include_hidden=False,
-            extensions=[".txt"],
-            exclude_files=list(DEFAULT_EXCLUDE),
-            exclude_folders=list(DEFAULT_EXCLUDE),
-            output_file_name=str(tmp_path / "out.txt"),
-            progress_callback=progress_callback,
-        )
-
-    asyncio.run(run_extraction())
+    processor.extract_files(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=[".txt"],
+        exclude_files=list(DEFAULT_EXCLUDE),
+        exclude_folders=list(DEFAULT_EXCLUDE),
+        output_file_name=str(tmp_path / "out.txt"),
+        progress_callback=progress_callback,
+    )
 
     assert walk_calls == 1, "os.walk should only be invoked once per extraction"
 

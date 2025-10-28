@@ -70,7 +70,7 @@ startup to prevent invalid modes or resource limits from causing runtime errors.
 ## Requirements
 
 - Python 3.9+
-- aiofiles
+- Standard library only (no additional runtime dependencies required)
 
 ## License
 

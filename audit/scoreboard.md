@@ -14,9 +14,9 @@ can quickly see what has been addressed and what remains.
 - **Q-002 (S1 · Architecture)** — Status: *In Progress*
   - Notes: `ExtractorService` now centralises queue lifecycle and event-loop management for background workers.
   - Next Action: Continue migrating GUI orchestration into the service layer to support alternate front ends.
-- **Q-003 (S1 · Performance/Concurrency)** — Status: *Not Started*
-  - Notes: Asyncio worker still intertwined with Tkinter thread lifecycle.
-  - Next Action: Investigate cancellation behaviour and design a managed runner.
+- **Q-003 (S1 · Performance/Concurrency)** — Status: *Done*
+  - Notes: Extraction now runs synchronously with a cancellation event, avoiding Tkinter event loop coupling.
+  - Next Action: Monitor cancellation responsiveness under heavy filesystem loads.
 - **Q-004 (S1 · UX/UI)** — Status: *Not Started*
   - Notes: Layout constraints still assume large displays; needs responsive resizing.
   - Next Action: Prototype responsive layout adjustments.
