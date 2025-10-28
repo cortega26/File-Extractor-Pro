@@ -10,7 +10,7 @@ File Extractor Pro - User's Guide
 
 3. Main Interface
    The main interface consists of several key elements:
-   - Folder Selection: Choose the folder containing the files you want to process.
+   - Folder Selection: Choose the folder containing the files you want to process. The Browse menu keeps a history of your most recent selections for quick reuse.
    - Output File Name: Specify the name of the file where extracted content will be saved.
    - Mode Selection: Choose between Inclusion and Exclusion modes.
    - File Extension Options: Select common file extensions or specify custom ones.

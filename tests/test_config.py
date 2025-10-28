@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from pathlib import Path
 
@@ -74,3 +75,39 @@ def test_setting_invalid_value_raises_and_preserves_existing(tmp_path: Path) -> 
         config.set("mode", "invalid")
 
     assert config.get("mode") == "inclusion"
+
+
+def test_recent_folders_round_trip(tmp_path: Path) -> None:
+    """Updating recent folders should persist and remove duplicates."""
+
+    config_path = tmp_path / "config.ini"
+    Config = load_config_class()
+    config = Config(str(config_path))
+
+    config.update_recent_folders(str(tmp_path / "first"))
+    config.update_recent_folders(str(tmp_path / "second"))
+    config.update_recent_folders(str(tmp_path / "first"))
+
+    recent = config.get_recent_folders()
+    assert recent[0].endswith("first")
+    assert recent[1].endswith("second")
+
+    raw = json.loads(config.config["DEFAULT"]["recent_folders"])
+    assert isinstance(raw, list)
+    assert len(raw) == 2
+
+
+def test_recent_folders_limit(tmp_path: Path) -> None:
+    """Recent folders history should respect the configured limit."""
+
+    config_path = tmp_path / "config.ini"
+    Config = load_config_class()
+    config = Config(str(config_path))
+
+    for index in range(8):
+        config.update_recent_folders(str(tmp_path / f"folder_{index}"), limit=3)
+
+    recent = config.get_recent_folders()
+    assert len(recent) == 3
+    assert recent[0].endswith("folder_7")
+    assert recent[-1].endswith("folder_5")
