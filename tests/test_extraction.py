@@ -223,4 +223,3 @@ def test_build_summary_and_reset_state(tmp_path: Path) -> None:
     cleared_summary = processor.build_summary()
     assert cleared_summary["total_files"] == 0
     assert not cleared_summary["file_details"]
-
