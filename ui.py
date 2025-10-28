@@ -24,14 +24,15 @@ class FileExtractorGUI:
     def __init__(self, master):
         self.master = master
         self.master.title("File Extractor Pro")
-        self.master.geometry("700x700")
-        self.master.minsize(700, 700)
+        self.master.rowconfigure(0, weight=1)
+        self.master.columnconfigure(0, weight=1)
 
         try:
             self.config = Config()
             self.setup_variables()
             self.setup_ui_components()
             self.connect_event_handlers()
+            self._configure_responsiveness()
 
             self.extraction_in_progress = False
             self.loop = None
@@ -75,9 +76,9 @@ class FileExtractorGUI:
         self.main_frame = ttk.Frame(self.master, padding="10")
         self.main_frame.grid(row=0, column=0, sticky=tk.N + tk.S + tk.E + tk.W)
 
-        for index in range(12):
-            self.main_frame.rowconfigure(index, weight=1)
+        self.main_frame.columnconfigure(0, weight=0)
         self.main_frame.columnconfigure(1, weight=1)
+        self.main_frame.columnconfigure(2, weight=0)
 
         ttk.Label(self.main_frame, text="Folder Path:").grid(
             row=0, column=0, sticky=tk.W
@@ -200,6 +201,20 @@ class FileExtractorGUI:
             self.master, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W
         )
         self.status_bar.grid(row=1, column=0, sticky=tk.W + tk.E)
+
+    def _configure_responsiveness(self) -> None:
+        """Configure geometry managers for responsive resizing."""
+
+        for row_index in range(12):
+            weight = 1 if row_index == 10 else 0
+            self.main_frame.rowconfigure(row_index, weight=weight)
+
+        self.master.rowconfigure(1, weight=0)
+
+        self.master.update_idletasks()
+        min_width = self.master.winfo_reqwidth()
+        min_height = self.master.winfo_reqheight()
+        self.master.minsize(min_width, min_height)
 
     def connect_event_handlers(self) -> None:
         """Connect all event handlers."""
