@@ -30,6 +30,7 @@ class FileExtractorGUI:
         self.master.title("File Extractor Pro")
         self.master.rowconfigure(0, weight=1)
         self.master.columnconfigure(0, weight=1)
+        self.style = ttk.Style(self.master)
 
         try:
             self.config = Config()
@@ -77,7 +78,7 @@ class FileExtractorGUI:
     def setup_ui_components(self) -> None:
         """Create all UI widgets."""
 
-        self.main_frame = ttk.Frame(self.master, padding="10")
+        self.main_frame = ttk.Frame(self.master, padding="10", style="Main.TFrame")
         self.main_frame.grid(row=0, column=0, sticky=tk.N + tk.S + tk.E + tk.W)
 
         self.main_frame.columnconfigure(0, weight=0)
@@ -113,18 +114,22 @@ class FileExtractorGUI:
             self.main_frame,
             text="Include Hidden Files",
             variable=self.include_hidden,
+            style="Main.TCheckbutton",
         ).grid(row=3, column=0, columnspan=2, sticky=tk.W)
 
         ttk.Label(self.main_frame, text="Select Extensions:").grid(
             row=4, column=0, sticky=tk.W
         )
-        extensions_frame = ttk.Frame(self.main_frame)
-        extensions_frame.grid(row=4, column=1, columnspan=2, sticky=tk.W + tk.E)
+        self.extensions_frame = ttk.Frame(self.main_frame, style="Main.TFrame")
+        self.extensions_frame.grid(row=4, column=1, columnspan=2, sticky=tk.W + tk.E)
 
         for index, (ext, var) in enumerate(self.extension_vars.items()):
-            ttk.Checkbutton(extensions_frame, text=ext, variable=var).grid(
-                row=index // 4, column=index % 4, sticky=tk.W
-            )
+            ttk.Checkbutton(
+                self.extensions_frame,
+                text=ext,
+                variable=var,
+                style="Main.TCheckbutton",
+            ).grid(row=index // 4, column=index % 4, sticky=tk.W)
 
         ttk.Label(self.main_frame, text="Custom Extensions (comma separated):").grid(
             row=5, column=0, sticky=tk.W
@@ -147,12 +152,18 @@ class FileExtractorGUI:
         )
 
         self.progress_bar = ttk.Progressbar(
-            self.main_frame, variable=self.progress_var, maximum=100
+            self.main_frame,
+            variable=self.progress_var,
+            maximum=100,
+            style="Main.Horizontal.TProgressbar",
         )
         self.progress_bar.grid(row=8, column=0, columnspan=3, sticky=tk.W + tk.E)
 
         self.extract_button = ttk.Button(
-            self.main_frame, text="Extract", command=self.execute
+            self.main_frame,
+            text="Extract",
+            command=self.execute,
+            style="Accent.TButton",
         )
         self.extract_button.grid(row=9, column=0, pady=10, sticky=tk.W)
 
@@ -180,7 +191,10 @@ class FileExtractorGUI:
         )
 
         ttk.Button(
-            self.main_frame, text="Generate Report", command=self.generate_report
+            self.main_frame,
+            text="Generate Report",
+            command=self.generate_report,
+            style="TButton",
         ).grid(row=11, column=0, columnspan=3, pady=10)
 
     def setup_menu_bar(self) -> None:
@@ -202,7 +216,11 @@ class FileExtractorGUI:
 
         self.status_var = tk.StringVar()
         self.status_bar = ttk.Label(
-            self.master, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W
+            self.master,
+            textvariable=self.status_var,
+            relief=tk.SUNKEN,
+            anchor=tk.W,
+            style="Status.TLabel",
         )
         self.status_bar.grid(row=1, column=0, sticky=tk.W + tk.E)
 
@@ -462,29 +480,206 @@ class FileExtractorGUI:
         """Apply theme with better color scheme and error handling."""
 
         try:
-            if theme == "dark":
-                self.master.tk_setPalette(
-                    background="#2d2d2d",
-                    foreground="#ffffff",
-                    activeBackground="#4d4d4d",
-                    activeForeground="#ffffff",
-                )
-                self.output_text.config(
-                    bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff"
-                )
+            palette = self._get_theme_palette(theme)
+            base_theme = palette["base_theme"]
+            if base_theme in self.style.theme_names():
+                self.style.theme_use(base_theme)
             else:
-                self.master.tk_setPalette(
-                    background="#f0f0f0",
-                    foreground="#000000",
-                    activeBackground="#e0e0e0",
-                    activeForeground="#000000",
-                )
-                self.output_text.config(
-                    bg="#ffffff", fg="#000000", insertbackground="#000000"
-                )
+                self.style.theme_use("clam")
+
+            self.master.configure(bg=palette["window_bg"])
+            self.main_frame.configure(style="Main.TFrame")
+            self.extensions_frame.configure(style="Main.TFrame")
+            if hasattr(self, "menu_bar"):
+                try:
+                    self.menu_bar.configure(
+                        background=palette["menu_bg"],
+                        foreground=palette["menu_text"],
+                        activebackground=palette["menu_active_bg"],
+                        activeforeground=palette["menu_active_text"],
+                    )
+                    menu_end_index = self.menu_bar.index("end") or -1
+                    for menu_index in range(menu_end_index + 1):
+                        self.menu_bar.entryconfig(
+                            menu_index,
+                            background=palette["menu_bg"],
+                            foreground=palette["menu_text"],
+                            activebackground=palette["menu_active_bg"],
+                            activeforeground=palette["menu_active_text"],
+                        )
+                except tk.TclError:
+                    logger.debug("Menu styling not supported on this platform")
+
+            self.style.configure("Main.TFrame", background=palette["frame_bg"])
+            self.style.configure(
+                "TLabel",
+                background=palette["frame_bg"],
+                foreground=palette["text"],
+            )
+            self.style.configure(
+                "Status.TLabel",
+                background=palette["status_bg"],
+                foreground=palette["status_text"],
+                relief=tk.SUNKEN,
+            )
+            self.status_bar.configure(style="Status.TLabel")
+
+            self.style.configure(
+                "Main.TCheckbutton",
+                background=palette["frame_bg"],
+                foreground=palette["text"],
+            )
+            self.style.map(
+                "Main.TCheckbutton",
+                background=[
+                    ("active", palette["check_active_bg"]),
+                ],
+                foreground=[
+                    ("disabled", palette["disabled_text"]),
+                ],
+            )
+
+            self.style.configure(
+                "TButton",
+                background=palette["button_bg"],
+                foreground=palette["button_text"],
+                borderwidth=1,
+            )
+            self.style.map(
+                "TButton",
+                background=[
+                    ("active", palette["button_active_bg"]),
+                    ("disabled", palette["button_disabled_bg"]),
+                ],
+                foreground=[
+                    ("disabled", palette["disabled_text"]),
+                ],
+            )
+
+            self.style.configure(
+                "Accent.TButton",
+                background=palette["accent_bg"],
+                foreground=palette["accent_text"],
+                padding=(6, 4),
+            )
+            self.style.map(
+                "Accent.TButton",
+                background=[
+                    ("active", palette["accent_active_bg"]),
+                    ("disabled", palette["button_disabled_bg"]),
+                ],
+                foreground=[
+                    ("disabled", palette["disabled_text"]),
+                ],
+            )
+
+            self.style.configure(
+                "TEntry",
+                fieldbackground=palette["entry_bg"],
+                background=palette["frame_bg"],
+                foreground=palette["text"],
+                insertcolor=palette["text"],
+                borderwidth=1,
+            )
+            self.style.map(
+                "TEntry",
+                fieldbackground=[
+                    ("disabled", palette["entry_disabled_bg"]),
+                ],
+                foreground=[
+                    ("disabled", palette["disabled_text"]),
+                ],
+            )
+
+            self.style.configure(
+                "TCombobox",
+                fieldbackground=palette["entry_bg"],
+                background=palette["frame_bg"],
+                foreground=palette["text"],
+            )
+
+            self.style.configure(
+                "Main.Horizontal.TProgressbar",
+                troughcolor=palette["progress_trough"],
+                background=palette["accent_bg"],
+                bordercolor=palette["frame_bg"],
+                lightcolor=palette["accent_bg"],
+                darkcolor=palette["accent_active_bg"],
+            )
+
+            self.output_text.config(
+                bg=palette["text_area_bg"],
+                fg=palette["text_area_fg"],
+                insertbackground=palette["text_area_fg"],
+            )
+            self.output_text.tag_configure("info", foreground=palette["text_area_fg"])
+            self.output_text.tag_configure("error", foreground=palette["error_text"])
+
             logger.debug("Theme applied: %s", theme)
         except Exception as exc:
             logger.error("Error applying theme: %s", exc)
+
+    def _get_theme_palette(self, theme: str) -> Dict[str, str]:
+        """Return palette settings for supported themes."""
+
+        palettes: Dict[str, Dict[str, str]] = {
+            "dark": {
+                "base_theme": "clam",
+                "window_bg": "#1b1d1f",
+                "frame_bg": "#25282a",
+                "text": "#f5f5f5",
+                "status_bg": "#1b1d1f",
+                "status_text": "#d7d7d7",
+                "menu_bg": "#25282a",
+                "menu_text": "#f5f5f5",
+                "menu_active_bg": "#303335",
+                "menu_active_text": "#ffffff",
+                "check_active_bg": "#303335",
+                "button_bg": "#303335",
+                "button_text": "#f5f5f5",
+                "button_active_bg": "#3a4044",
+                "button_disabled_bg": "#2a2d2f",
+                "accent_bg": "#3f72ff",
+                "accent_text": "#ffffff",
+                "accent_active_bg": "#335fcc",
+                "entry_bg": "#1f2224",
+                "entry_disabled_bg": "#2a2d2f",
+                "disabled_text": "#7f868a",
+                "progress_trough": "#1f2224",
+                "text_area_bg": "#1f2123",
+                "text_area_fg": "#f5f5f5",
+                "error_text": "#ff8787",
+            },
+            "light": {
+                "base_theme": "clam",
+                "window_bg": "#e9edf2",
+                "frame_bg": "#f7f9fc",
+                "text": "#1f2933",
+                "status_bg": "#d8dee6",
+                "status_text": "#1f2933",
+                "menu_bg": "#f7f9fc",
+                "menu_text": "#1f2933",
+                "menu_active_bg": "#dce3ef",
+                "menu_active_text": "#1f2933",
+                "check_active_bg": "#e1e7ef",
+                "button_bg": "#e1e7ef",
+                "button_text": "#1f2933",
+                "button_active_bg": "#d0d7e2",
+                "button_disabled_bg": "#c3c9d3",
+                "accent_bg": "#3f51b5",
+                "accent_text": "#ffffff",
+                "accent_active_bg": "#32408f",
+                "entry_bg": "#ffffff",
+                "entry_disabled_bg": "#e2e6ed",
+                "disabled_text": "#9aa5b1",
+                "progress_trough": "#d8dee6",
+                "text_area_bg": "#ffffff",
+                "text_area_fg": "#1f2933",
+                "error_text": "#c62828",
+            },
+        }
+        selected_palette = palettes.get(theme, palettes["light"])
+        return dict(selected_palette)
 
     def reset_extraction_state(self) -> None:
         """Reset the application state after extraction."""
