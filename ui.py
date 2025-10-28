@@ -108,12 +108,22 @@ class FileExtractorGUI:
         )
 
         ttk.Label(self.main_frame, text="Mode:").grid(row=2, column=0, sticky=tk.W)
-        ttk.Combobox(
-            self.main_frame,
-            textvariable=self.mode,
-            values=["inclusion", "exclusion"],
-            state="readonly",
-        ).grid(row=2, column=1, sticky=tk.W + tk.E)
+        mode_frame = ttk.Frame(self.main_frame, style="Main.TFrame")
+        mode_frame.grid(row=2, column=1, columnspan=2, sticky=tk.W)
+        ttk.Radiobutton(
+            mode_frame,
+            text="Inclusion",
+            value="inclusion",
+            variable=self.mode,
+            style="Main.TRadiobutton",
+        ).grid(row=0, column=0, padx=(0, 10), sticky=tk.W)
+        ttk.Radiobutton(
+            mode_frame,
+            text="Exclusion",
+            value="exclusion",
+            variable=self.mode,
+            style="Main.TRadiobutton",
+        ).grid(row=0, column=1, sticky=tk.W)
 
         ttk.Checkbutton(
             self.main_frame,
@@ -580,6 +590,21 @@ class FileExtractorGUI:
             )
             self.style.map(
                 "Main.TCheckbutton",
+                background=[
+                    ("active", palette["check_active_bg"]),
+                ],
+                foreground=[
+                    ("disabled", palette["disabled_text"]),
+                ],
+            )
+
+            self.style.configure(
+                "Main.TRadiobutton",
+                background=palette["frame_bg"],
+                foreground=palette["text"],
+            )
+            self.style.map(
+                "Main.TRadiobutton",
                 background=[
                     ("active", palette["check_active_bg"]),
                 ],
