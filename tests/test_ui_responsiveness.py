@@ -44,3 +44,35 @@ def test_window_minsize_matches_required_size(tk_root: tk.Tk) -> None:
     min_width, min_height = tk_root.minsize()
     assert min_width >= tk_root.winfo_reqwidth()
     assert min_height >= tk_root.winfo_reqheight()
+
+
+def test_cancel_extraction_posts_queue_message(tk_root: tk.Tk) -> None:
+    """Cancelling an in-flight extraction should enqueue a status update."""
+
+    from ui import FileExtractorGUI
+
+    gui = FileExtractorGUI(tk_root)
+    gui.extraction_in_progress = True
+    gui.extract_button.config(state="disabled")
+    gui.progress_var.set(50)
+    gui.status_var.set("Working")
+
+    class _AliveThread:
+        def is_alive(self) -> bool:
+            return True
+
+    gui.thread = _AliveThread()
+
+    while not gui.output_queue.empty():
+        gui.output_queue.get_nowait()
+
+    gui.cancel_extraction()
+
+    assert gui.output_queue.get_nowait() == (
+        "info",
+        "Extraction cancelled by user",
+    )
+    assert gui.extract_button["state"] == "normal"
+    assert gui.progress_var.get() == 0
+    assert gui.status_var.get() == "Ready"
+    assert not gui.extraction_in_progress

@@ -8,9 +8,9 @@ can quickly see what has been addressed and what remains.
 - **Next Action** — concrete step to move the item forward.
 
 ## Must Have (Severity S0–S1)
-- **Q-001 (S0 · Testing)** — Status: *In Progress*
-  - Notes: Pytest suite exercises extraction flow, queue messaging, and progress reporting.
-  - Next Action: Expand coverage for queue edge cases (cancellation path).
+- **Q-001 (S0 · Testing)** — Status: *Done*
+  - Notes: Pytest suite now covers extraction flow, progress reporting, and queue cancellation messaging.
+  - Next Action: Monitor queue behaviours during future async refactors.
 - **Q-002 (S1 · Architecture)** — Status: *Not Started*
   - Notes: Modules remain tightly coupled between UI, config, and processor layers.
   - Next Action: Draft refactoring plan splitting UI and core services.
@@ -41,4 +41,4 @@ can quickly see what has been addressed and what remains.
   - Next Action: Move logging setup to entry point and allow injection.
 
 ## Recently Completed
-- _None yet._
+- **Q-001** — Added regression coverage for cancellation queue messaging and reset behaviour.
