@@ -252,17 +252,10 @@ class Config:
         """
 
         try:
-            if hasattr(self.settings, key):
-                raw_values = self.settings.to_raw_dict()
-                raw_values[key] = self._normalise_value_for_storage(key, value)
-                self.settings = AppSettings.from_raw(raw_values)
-                self.config["DEFAULT"] = self.settings.to_raw_dict()
-            else:
-                self.config.set("DEFAULT", key, str(value))
-            self.save()
-        except ConfigValidationError as exc:
+            self.update_settings({key: value})
+        except ValueError as exc:
             logger.error("Invalid value for config key %s: %s", key, exc)
-            raise ValueError(f"Invalid value for {key}: {exc}") from exc
+            raise ValueError(str(exc)) from exc
         except Exception as exc:  # pragma: no cover - unexpected failure
             logger.error("Error setting config value %s: %s", key, exc)
             raise
@@ -313,6 +306,35 @@ class Config:
             return value
 
         return str(value)
+
+    def update_settings(self, updates: Mapping[str, Any]) -> None:
+        """Atomically apply multiple configuration updates with validation."""
+
+        if not updates:
+            return
+
+        raw_values = self.settings.to_raw_dict()
+        pending_default_updates: Dict[str, str] = {}
+
+        for key, value in updates.items():
+            if hasattr(self.settings, key):
+                raw_values[key] = self._normalise_value_for_storage(key, value)
+            else:
+                pending_default_updates[key] = str(value)
+
+        try:
+            new_settings = AppSettings.from_raw(raw_values)
+        except ConfigValidationError as exc:
+            logger.error("Invalid configuration update: %s", exc)
+            raise ValueError(f"Invalid configuration update: {exc}") from exc
+
+        self.settings = new_settings
+        self.config["DEFAULT"] = self.settings.to_raw_dict()
+
+        for key, value in pending_default_updates.items():
+            self.config.set("DEFAULT", key, value)
+
+        self.save()
 
 
 __all__ = ["AppSettings", "Config", "ConfigValidationError"]

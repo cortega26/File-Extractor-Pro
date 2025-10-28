@@ -131,3 +131,39 @@ def test_recent_folders_limit(tmp_path: Path) -> None:
     assert len(recent) == 3
     assert recent[0].endswith("folder_7")
     assert recent[-1].endswith("folder_5")
+
+
+def test_update_settings_persists_all_values(tmp_path: Path) -> None:
+    """Bulk updates should persist after validation."""
+
+    config_path = tmp_path / "config.ini"
+    Config = load_config_class()
+    config = Config(str(config_path))
+
+    config.update_settings(
+        {
+            "output_file": "report.txt",
+            "mode": "exclusion",
+            "include_hidden": True,
+            "batch_size": 256,
+        }
+    )
+
+    assert config.get("output_file") == "report.txt"
+    assert config.get("mode") == "exclusion"
+    assert config.get("include_hidden") == "true"
+    assert config.get("batch_size") == "256"
+
+
+def test_update_settings_rolls_back_on_error(tmp_path: Path) -> None:
+    """Invalid bulk updates should not persist partial values."""
+
+    config_path = tmp_path / "config.ini"
+    Config = load_config_class()
+    config = Config(str(config_path))
+
+    with pytest.raises(ValueError):
+        config.update_settings({"mode": "invalid", "output_file": "bad.txt"})
+
+    assert config.get("mode") == "inclusion"
+    assert "output_file = output.txt" in read_raw_config(config_path)

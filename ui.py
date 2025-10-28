@@ -574,14 +574,27 @@ class FileExtractorGUI:
         """Save current configuration with error handling."""
 
         try:
-            self.config.set("output_file", self.output_file_name.get())
-            self.config.set("mode", self.mode.get())
-            self.config.set("include_hidden", str(self.include_hidden.get()))
-            self.config.set("exclude_files", self.exclude_files.get())
-            self.config.set("exclude_folders", self.exclude_folders.get())
+            updates = {
+                "output_file": self.output_file_name.get(),
+                "mode": self.mode.get(),
+                "include_hidden": self.include_hidden.get(),
+                "exclude_files": self.exclude_files.get(),
+                "exclude_folders": self.exclude_folders.get(),
+            }
+            self.config.update_settings(updates)
             logger.debug("Configuration saved successfully")
+        except ValueError as exc:
+            logger.warning("Invalid configuration values: %s", exc)
+            messagebox.showerror(
+                "Configuration Error",
+                f"Failed to save settings: {exc}",
+            )
         except Exception as exc:
             logger.error("Error saving configuration: %s", exc)
+            messagebox.showerror(
+                "Configuration Error",
+                "An unexpected error occurred while saving settings.",
+            )
 
     def toggle_theme(self) -> None:
         """Toggle between light and dark themes with error handling."""
