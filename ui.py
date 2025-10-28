@@ -18,6 +18,8 @@ from services import ExtractorService
 STATUS_QUEUE_MAX_SIZE = 256
 QUEUE_IDLE_POLL_MS = 80
 QUEUE_ACTIVE_POLL_MS = 20
+MIN_WINDOW_WIDTH = 480
+MIN_WINDOW_HEIGHT = 540
 
 
 class FileExtractorGUI:
@@ -91,9 +93,11 @@ class FileExtractorGUI:
         ttk.Label(self.main_frame, text="Folder Path:").grid(
             row=0, column=0, sticky=tk.W
         )
-        ttk.Entry(self.main_frame, textvariable=self.folder_path, width=50).grid(
-            row=0, column=1, sticky=tk.W + tk.E
+        self.folder_entry = ttk.Entry(
+            self.main_frame,
+            textvariable=self.folder_path,
         )
+        self.folder_entry.grid(row=0, column=1, sticky=tk.W + tk.E)
         self.browse_button = ttk.Menubutton(self.main_frame, text="Browse")
         self.browse_button.grid(row=0, column=2, padx=5)
         self.browse_menu = tk.Menu(self.browse_button, tearoff=0)
@@ -103,22 +107,24 @@ class FileExtractorGUI:
         ttk.Label(self.main_frame, text="Output File:").grid(
             row=1, column=0, sticky=tk.W
         )
-        ttk.Entry(self.main_frame, textvariable=self.output_file_name, width=50).grid(
-            row=1, column=1, sticky=tk.W + tk.E
+        self.output_entry = ttk.Entry(
+            self.main_frame,
+            textvariable=self.output_file_name,
         )
+        self.output_entry.grid(row=1, column=1, sticky=tk.W + tk.E)
 
         ttk.Label(self.main_frame, text="Mode:").grid(row=2, column=0, sticky=tk.W)
-        mode_frame = ttk.Frame(self.main_frame, style="Main.TFrame")
-        mode_frame.grid(row=2, column=1, columnspan=2, sticky=tk.W)
+        self.mode_frame = ttk.Frame(self.main_frame, style="Main.TFrame")
+        self.mode_frame.grid(row=2, column=1, columnspan=2, sticky=tk.W + tk.E)
         ttk.Radiobutton(
-            mode_frame,
+            self.mode_frame,
             text="Inclusion",
             value="inclusion",
             variable=self.mode,
             style="Main.TRadiobutton",
         ).grid(row=0, column=0, padx=(0, 10), sticky=tk.W)
         ttk.Radiobutton(
-            mode_frame,
+            self.mode_frame,
             text="Exclusion",
             value="exclusion",
             variable=self.mode,
@@ -136,7 +142,12 @@ class FileExtractorGUI:
             row=4, column=0, sticky=tk.W
         )
         self.extensions_frame = ttk.Frame(self.main_frame, style="Main.TFrame")
-        self.extensions_frame.grid(row=4, column=1, columnspan=2, sticky=tk.W + tk.E)
+        self.extensions_frame.grid(
+            row=4,
+            column=1,
+            columnspan=2,
+            sticky=tk.W + tk.E,
+        )
 
         for index, (ext, var) in enumerate(self.extension_vars.items()):
             ttk.Checkbutton(
@@ -149,21 +160,42 @@ class FileExtractorGUI:
         ttk.Label(self.main_frame, text="Custom Extensions (comma separated):").grid(
             row=5, column=0, sticky=tk.W
         )
-        ttk.Entry(self.main_frame, textvariable=self.custom_extensions).grid(
-            row=5, column=1, columnspan=2, sticky=tk.W + tk.E
+        self.custom_extensions_entry = ttk.Entry(
+            self.main_frame,
+            textvariable=self.custom_extensions,
+        )
+        self.custom_extensions_entry.grid(
+            row=5,
+            column=1,
+            columnspan=2,
+            sticky=tk.W + tk.E,
         )
 
         ttk.Label(self.main_frame, text="Exclude Files:").grid(
             row=6, column=0, sticky=tk.W
         )
-        ttk.Entry(self.main_frame, textvariable=self.exclude_files).grid(
-            row=6, column=1, columnspan=2, sticky=tk.W + tk.E
+        self.exclude_files_entry = ttk.Entry(
+            self.main_frame,
+            textvariable=self.exclude_files,
+        )
+        self.exclude_files_entry.grid(
+            row=6,
+            column=1,
+            columnspan=2,
+            sticky=tk.W + tk.E,
         )
         ttk.Label(self.main_frame, text="Exclude Folders:").grid(
             row=7, column=0, sticky=tk.W
         )
-        ttk.Entry(self.main_frame, textvariable=self.exclude_folders).grid(
-            row=7, column=1, columnspan=2, sticky=tk.W + tk.E
+        self.exclude_folders_entry = ttk.Entry(
+            self.main_frame,
+            textvariable=self.exclude_folders,
+        )
+        self.exclude_folders_entry.grid(
+            row=7,
+            column=1,
+            columnspan=2,
+            sticky=tk.W + tk.E,
         )
 
         self.progress_bar = ttk.Progressbar(
@@ -243,15 +275,28 @@ class FileExtractorGUI:
         """Configure geometry managers for responsive resizing."""
 
         for row_index in range(12):
-            weight = 1 if row_index == 10 else 0
+            weight = 1 if row_index in {4, 10} else 0
             self.main_frame.rowconfigure(row_index, weight=weight)
 
         self.master.rowconfigure(1, weight=0)
 
         self.master.update_idletasks()
-        min_width = self.master.winfo_reqwidth()
-        min_height = self.master.winfo_reqheight()
+        required_width = self.master.winfo_reqwidth()
+        required_height = self.master.winfo_reqheight()
+        min_width = max(MIN_WINDOW_WIDTH, int(required_width * 0.6))
+        min_height = max(MIN_WINDOW_HEIGHT, int(required_height * 0.6))
         self.master.minsize(min_width, min_height)
+
+        for column_index in range(3):
+            self.main_frame.columnconfigure(
+                column_index, weight=1 if column_index == 1 else 0
+            )
+
+        for column_index in range(4):
+            self.extensions_frame.columnconfigure(column_index, weight=1)
+
+        for column_index in range(self.mode_frame.grid_size()[0]):
+            self.mode_frame.columnconfigure(column_index, weight=1)
 
     def connect_event_handlers(self) -> None:
         """Connect all event handlers."""
