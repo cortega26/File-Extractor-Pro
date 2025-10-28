@@ -50,6 +50,22 @@ File Extractor Pro is a GUI application to extract and process files based on sp
 
 4. Generate and view extraction reports.
 
+## Configuration
+
+The application persists user preferences to `config.ini`. Values are validated at
+startup to prevent invalid modes or resource limits from causing runtime errors.
+
+| Name             | Type    | Default      | Required | Description |
+| ---------------- | ------- | ------------ | -------- | ----------- |
+| `output_file`    | string  | `output.txt` | No       | Default filename used when generating extraction output. |
+| `mode`           | string  | `inclusion`  | No       | Extraction mode. Must be either `inclusion` or `exclusion`. |
+| `include_hidden` | boolean | `false`      | No       | Controls whether hidden files and folders are processed. Accepts `true/false`, `yes/no`, or `1/0`. |
+| `exclude_files`  | list    | see defaults | No       | Comma-separated list of file patterns to exclude from extraction. |
+| `exclude_folders`| list    | see defaults | No       | Comma-separated list of folder patterns to exclude from extraction. |
+| `theme`          | string  | `light`      | No       | UI theme preference. Must be `light` or `dark`. |
+| `batch_size`     | integer | `100`        | No       | Number of files processed before UI progress updates. Must be greater than zero. |
+| `max_memory_mb`  | integer | `512`        | No       | Soft memory cap used for processing safeguards. Must be greater than zero. |
+
 ## Requirements
 
 - Python 3.9+
