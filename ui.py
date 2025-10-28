@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
 import tkinter as tk
-from datetime import datetime
 from queue import Empty
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Callable, Dict
@@ -46,7 +44,6 @@ class FileExtractorGUI:
                 queue_max_size=STATUS_QUEUE_MAX_SIZE,
             )
             self.output_queue = self.service.output_queue
-            self.file_processor = self.service.file_processor
 
             self.apply_theme(self.config.get("theme", "light"))
         except Exception as exc:
@@ -404,7 +401,7 @@ class FileExtractorGUI:
 
         self.output_text.delete(1.0, tk.END)
         self.progress_var.set(0)
-        self.file_processor.extraction_summary.clear()
+        self.service.reset_state()
         self.extraction_in_progress = True
         self._pending_status_message = None
         self.extract_button.config(state="disabled")
@@ -525,45 +522,19 @@ class FileExtractorGUI:
     def generate_report(self) -> None:
         """Generate extraction report with improved formatting and error handling."""
 
-        if not self.file_processor.extraction_summary:
-            messagebox.showinfo(
-                "Info", "No extraction data available. Please run an extraction first."
-            )
-            return
-
         try:
-            report = {
-                "timestamp": datetime.now().isoformat(),
-                "total_files": sum(
-                    ext_info["count"]
-                    for ext_info in self.file_processor.extraction_summary.values()
-                    if isinstance(ext_info, dict) and "count" in ext_info
-                ),
-                "total_size": sum(
-                    ext_info["total_size"]
-                    for ext_info in self.file_processor.extraction_summary.values()
-                    if isinstance(ext_info, dict) and "total_size" in ext_info
-                ),
-                "extension_summary": {
-                    ext: ext_info
-                    for ext, ext_info in self.file_processor.extraction_summary.items()
-                    if isinstance(ext_info, dict) and "count" in ext_info
-                },
-                "file_details": {
-                    path: details
-                    for path, details in self.file_processor.extraction_summary.items()
-                    if isinstance(details, dict) and "size" in details
-                },
-            }
+            summary = self.service.get_summary()
+            if summary.total_files == 0 and not summary.file_details:
+                messagebox.showinfo(
+                    "Info",
+                    "No extraction data available. Please run an extraction first.",
+                )
+                return
 
-            report_file = "extraction_report.json"
-            with open(report_file, "w", encoding="utf-8") as report_handle:
-                json.dump(report, report_handle, indent=2, ensure_ascii=False)
-
+            report_file = self.service.generate_report()
             messagebox.showinfo(
                 "Report Generated", f"Extraction report has been saved to {report_file}"
             )
-            logger.info("Report generated successfully: %s", report_file)
 
         except Exception as exc:
             error_msg = f"Error generating report: {exc}"

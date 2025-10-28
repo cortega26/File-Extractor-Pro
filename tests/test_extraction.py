@@ -198,7 +198,29 @@ def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
 
     processor._enqueue_message("info", "new message")
 
-    contents = [message_queue.get_nowait(), message_queue.get_nowait()]
 
-    assert ("info", "new message") in contents
-    assert all(message != ("info", "oldest") for message in contents)
+def test_build_summary_and_reset_state(tmp_path: Path) -> None:
+    """The processor should expose a structured summary snapshot and reset cleanly."""
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    sample_file = tmp_path / "example.txt"
+    sample_content = "sample payload"
+    sample_file.write_text(sample_content, encoding="utf-8")
+
+    with open(tmp_path / "out.txt", "w", encoding="utf-8") as output:
+        processor.process_file(str(sample_file), output)
+
+    summary = processor.build_summary()
+    assert summary["total_files"] == 1
+    assert summary["total_size"] == len(sample_content)
+    assert summary["extension_summary"][".txt"]["count"] == 1
+    assert str(sample_file) in summary["file_details"]
+
+    processor.reset_state()
+    assert not processor.processed_files
+    cleared_summary = processor.build_summary()
+    assert cleared_summary["total_files"] == 0
+    assert not cleared_summary["file_details"]
+

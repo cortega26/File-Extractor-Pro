@@ -2,14 +2,38 @@
 
 from __future__ import annotations
 
+import json
 import threading
+from dataclasses import dataclass
+from datetime import datetime
 from queue import Empty, Full, Queue
-from typing import Callable, Sequence
+from typing import Any, Callable, Dict, Sequence
 
 from logging_utils import logger
 from processor import ExtractionCancelled, FileProcessor
 
 ProgressCallback = Callable[[int, int], None]
+
+
+@dataclass(frozen=True)
+class ExtractionSummary:
+    """Typed representation of a completed extraction summary."""
+
+    total_files: int
+    total_size: int
+    extension_summary: Dict[str, Dict[str, int]]
+    file_details: Dict[str, Dict[str, Any]]
+
+    def as_payload(self) -> Dict[str, Any]:
+        """Return a serialisable payload for reporting."""
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "total_files": self.total_files,
+            "total_size": self.total_size,
+            "extension_summary": self.extension_summary,
+            "file_details": self.file_details,
+        }
 
 
 class ExtractorService:
@@ -33,6 +57,36 @@ class ExtractorService:
         """Expose the underlying file processor for reporting access."""
 
         return self._file_processor
+
+    def reset_state(self) -> None:
+        """Clear processor state prior to a new extraction run."""
+
+        self._file_processor.reset_state()
+
+    def get_summary(self) -> ExtractionSummary:
+        """Return a structured snapshot of the latest extraction results."""
+
+        snapshot = self._file_processor.build_summary()
+        return ExtractionSummary(
+            total_files=int(snapshot["total_files"]),
+            total_size=int(snapshot["total_size"]),
+            extension_summary=snapshot["extension_summary"],
+            file_details=snapshot["file_details"],
+        )
+
+    def generate_report(self, *, output_path: str = "extraction_report.json") -> str:
+        """Serialise the latest extraction summary to disk."""
+
+        summary = self.get_summary()
+        if summary.total_files == 0 and not summary.file_details:
+            raise ValueError("No extraction data available to report")
+
+        payload = summary.as_payload()
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+        logger.info("Extraction report written to %s", output_path)
+        return output_path
 
     def start_extraction(
         self,
@@ -147,4 +201,4 @@ class ExtractorService:
             logger.warning("Dropping state update due to saturated queue")
 
 
-__all__ = ["ExtractorService", "ProgressCallback"]
+__all__ = ["ExtractorService", "ExtractionSummary", "ProgressCallback"]
