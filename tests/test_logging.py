@@ -6,6 +6,7 @@ import importlib
 import logging
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Iterator
 
 import pytest
@@ -16,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 @pytest.fixture()
-def fresh_module() -> Iterator[object]:
+def fresh_module() -> Iterator[ModuleType]:
     """Provide a freshly imported ``file_extractor`` module for each test."""
 
     module_name = "file_extractor"
@@ -31,14 +32,14 @@ def fresh_module() -> Iterator[object]:
         sys.modules.pop(module_name, None)
 
 
-def test_import_does_not_configure_handlers(fresh_module: object) -> None:
+def test_import_does_not_configure_handlers(fresh_module: ModuleType) -> None:
     module = fresh_module
     logger = getattr(module, "logger")
     assert list(logger.handlers) == []
     assert logger.propagate is True
 
 
-def test_configure_logging_allows_injection(fresh_module: object) -> None:
+def test_configure_logging_allows_injection(fresh_module: ModuleType) -> None:
     module = fresh_module
     handler = logging.StreamHandler()
 
