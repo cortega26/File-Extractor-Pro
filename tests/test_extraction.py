@@ -7,12 +7,12 @@ import queue
 from pathlib import Path
 from typing import List, Tuple
 
-import pytest
-
 from file_extractor import DEFAULT_EXCLUDE, FileProcessor
 
 
-def test_extract_files_writes_expected_output_and_queue_messages(tmp_path: Path) -> None:
+def test_extract_files_writes_expected_output_and_queue_messages(
+    tmp_path: Path,
+) -> None:
     """Ensure end-to-end extraction writes output and reports via the queue."""
 
     spec_file = tmp_path / "README.md"

@@ -1,0 +1,505 @@
+"""Tkinter GUI for File Extractor Pro."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import queue
+import threading
+import tkinter as tk
+from datetime import datetime
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+from typing import Dict
+
+from config_manager import Config
+from constants import COMMON_EXTENSIONS
+from logging_utils import logger
+from processor import FileProcessor
+
+
+class FileExtractorGUI:
+    """Enhanced GUI with improved responsiveness and error handling."""
+
+    def __init__(self, master):
+        self.master = master
+        self.master.title("File Extractor Pro")
+        self.master.geometry("700x700")
+        self.master.minsize(700, 700)
+
+        try:
+            self.config = Config()
+            self.setup_variables()
+            self.setup_ui_components()
+            self.connect_event_handlers()
+
+            self.extraction_in_progress = False
+            self.loop = None
+            self.thread = None
+
+            self.output_queue = queue.Queue()
+            self.file_processor = FileProcessor(self.output_queue)
+
+            self.apply_theme(self.config.get("theme", "light"))
+        except Exception as exc:
+            logger.critical("Failed to initialize GUI: %s", exc, exc_info=True)
+            raise
+
+    def setup_variables(self) -> None:
+        """Initialize Tkinter variables."""
+
+        self.folder_path = tk.StringVar()
+        self.output_file_name = tk.StringVar(value=self.config.get("output_file"))
+        self.mode = tk.StringVar(value=self.config.get("mode", "inclusion"))
+        self.include_hidden = tk.BooleanVar(
+            value=self.config.get("include_hidden", "false") == "true"
+        )
+
+        self.exclude_files = tk.StringVar(value=self.config.get("exclude_files", ""))
+        self.exclude_folders = tk.StringVar(
+            value=self.config.get("exclude_folders", "")
+        )
+
+        self.custom_extensions = tk.StringVar()
+
+        self.extension_vars: Dict[str, tk.BooleanVar] = {}
+        for ext in COMMON_EXTENSIONS:
+            default_state = ext in {".txt", ".md", ".py"}
+            self.extension_vars[ext] = tk.BooleanVar(value=default_state)
+
+        self.progress_var = tk.DoubleVar(value=0)
+
+    def setup_ui_components(self) -> None:
+        """Create all UI widgets."""
+
+        self.main_frame = ttk.Frame(self.master, padding="10")
+        self.main_frame.grid(row=0, column=0, sticky=tk.N + tk.S + tk.E + tk.W)
+
+        for index in range(12):
+            self.main_frame.rowconfigure(index, weight=1)
+        self.main_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(self.main_frame, text="Folder Path:").grid(
+            row=0, column=0, sticky=tk.W
+        )
+        ttk.Entry(self.main_frame, textvariable=self.folder_path, width=50).grid(
+            row=0, column=1, sticky=tk.W + tk.E
+        )
+        ttk.Button(self.main_frame, text="Browse", command=self.browse_folder).grid(
+            row=0, column=2, padx=5
+        )
+
+        ttk.Label(self.main_frame, text="Output File:").grid(
+            row=1, column=0, sticky=tk.W
+        )
+        ttk.Entry(self.main_frame, textvariable=self.output_file_name, width=50).grid(
+            row=1, column=1, sticky=tk.W + tk.E
+        )
+
+        ttk.Label(self.main_frame, text="Mode:").grid(row=2, column=0, sticky=tk.W)
+        ttk.Combobox(
+            self.main_frame,
+            textvariable=self.mode,
+            values=["inclusion", "exclusion"],
+            state="readonly",
+        ).grid(row=2, column=1, sticky=tk.W + tk.E)
+
+        ttk.Checkbutton(
+            self.main_frame,
+            text="Include Hidden Files",
+            variable=self.include_hidden,
+        ).grid(row=3, column=0, columnspan=2, sticky=tk.W)
+
+        ttk.Label(self.main_frame, text="Select Extensions:").grid(
+            row=4, column=0, sticky=tk.W
+        )
+        extensions_frame = ttk.Frame(self.main_frame)
+        extensions_frame.grid(row=4, column=1, columnspan=2, sticky=tk.W + tk.E)
+
+        for index, (ext, var) in enumerate(self.extension_vars.items()):
+            ttk.Checkbutton(extensions_frame, text=ext, variable=var).grid(
+                row=index // 4, column=index % 4, sticky=tk.W
+            )
+
+        ttk.Label(self.main_frame, text="Custom Extensions (comma separated):").grid(
+            row=5, column=0, sticky=tk.W
+        )
+        ttk.Entry(self.main_frame, textvariable=self.custom_extensions).grid(
+            row=5, column=1, columnspan=2, sticky=tk.W + tk.E
+        )
+
+        ttk.Label(self.main_frame, text="Exclude Files:").grid(
+            row=6, column=0, sticky=tk.W
+        )
+        ttk.Entry(self.main_frame, textvariable=self.exclude_files).grid(
+            row=6, column=1, columnspan=2, sticky=tk.W + tk.E
+        )
+        ttk.Label(self.main_frame, text="Exclude Folders:").grid(
+            row=7, column=0, sticky=tk.W
+        )
+        ttk.Entry(self.main_frame, textvariable=self.exclude_folders).grid(
+            row=7, column=1, columnspan=2, sticky=tk.W + tk.E
+        )
+
+        self.progress_bar = ttk.Progressbar(
+            self.main_frame, variable=self.progress_var, maximum=100
+        )
+        self.progress_bar.grid(row=8, column=0, columnspan=3, sticky=tk.W + tk.E)
+
+        self.extract_button = ttk.Button(
+            self.main_frame, text="Extract", command=self.execute
+        )
+        self.extract_button.grid(row=9, column=0, pady=10, sticky=tk.W)
+
+        ttk.Button(self.main_frame, text="Cancel", command=self.cancel_extraction).grid(
+            row=9, column=1, pady=10, sticky=tk.W
+        )
+
+        self.setup_output_area()
+        self.setup_menu_bar()
+        self.setup_status_bar()
+
+    def setup_output_area(self) -> None:
+        """Set up output text area with improved formatting."""
+
+        self.output_text = scrolledtext.ScrolledText(
+            self.main_frame, wrap=tk.WORD, height=15
+        )
+        self.output_text.grid(
+            row=10,
+            column=0,
+            columnspan=3,
+            sticky=tk.W + tk.E + tk.N + tk.S,
+            padx=5,
+            pady=5,
+        )
+
+        ttk.Button(
+            self.main_frame, text="Generate Report", command=self.generate_report
+        ).grid(row=11, column=0, columnspan=3, pady=10)
+
+    def setup_menu_bar(self) -> None:
+        """Set up application menu bar."""
+
+        self.menu_bar = tk.Menu(self.master)
+        self.master.config(menu=self.menu_bar)
+
+        file_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.menu_bar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Exit", command=self.master.quit)
+
+        options_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.menu_bar.add_cascade(label="Options", menu=options_menu)
+        options_menu.add_command(label="Toggle Theme", command=self.toggle_theme)
+
+    def setup_status_bar(self) -> None:
+        """Set up status bar."""
+
+        self.status_var = tk.StringVar()
+        self.status_bar = ttk.Label(
+            self.master, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W
+        )
+        self.status_bar.grid(row=1, column=0, sticky=tk.W + tk.E)
+
+    def connect_event_handlers(self) -> None:
+        """Connect all event handlers."""
+
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.master.bind("<F5>", lambda event: self.execute())
+        self.master.bind("<Escape>", lambda event: self.cancel_extraction())
+
+    def browse_folder(self) -> None:
+        """Handle folder selection with improved error checking."""
+
+        try:
+            folder_selected = filedialog.askdirectory()
+            if folder_selected:
+                self.folder_path.set(folder_selected)
+                folder_name = os.path.basename(folder_selected)
+                self.output_file_name.set(f"{folder_name}.txt")
+                logger.info("Selected folder: %s", folder_selected)
+        except Exception as exc:
+            logger.error("Error selecting folder: %s", exc)
+            messagebox.showerror("Error", f"Error selecting folder: {exc}")
+
+    def execute(self) -> None:
+        """Execute file extraction with improved error handling."""
+
+        if self.extraction_in_progress:
+            return
+
+        try:
+            self.validate_inputs()
+            self.prepare_extraction()
+            self.start_extraction()
+        except Exception as exc:
+            logger.error("Error starting extraction: %s", exc)
+            messagebox.showerror("Error", str(exc))
+            self.reset_extraction_state()
+
+    def validate_inputs(self) -> None:
+        """Validate all user inputs."""
+
+        if not self.folder_path.get():
+            raise ValueError("Please select a folder.")
+
+        if not self.output_file_name.get():
+            raise ValueError("Please specify an output file name.")
+
+        selected_extensions = [
+            ext for ext, variable in self.extension_vars.items() if variable.get()
+        ]
+        custom_exts = [
+            ext.strip()
+            for ext in self.custom_extensions.get().split(",")
+            if ext.strip()
+        ]
+
+        if not (selected_extensions or custom_exts):
+            raise ValueError("Please select at least one file extension.")
+
+    def prepare_extraction(self) -> None:
+        """Prepare for extraction process."""
+
+        self.output_text.delete(1.0, tk.END)
+        self.progress_var.set(0)
+        self.file_processor.extraction_summary.clear()
+        self.extraction_in_progress = True
+        self.extract_button.config(state="disabled")
+        self.status_var.set("Extraction in progress...")
+        self.save_config()
+
+    def start_extraction(self) -> None:
+        """Start the extraction process in a separate thread."""
+
+        folder_path = self.folder_path.get()
+        output_file_name = self.output_file_name.get()
+        mode = self.mode.get()
+        include_hidden = self.include_hidden.get()
+
+        extensions = [ext for ext, var in self.extension_vars.items() if var.get()]
+        custom_exts = [
+            ext.strip()
+            for ext in self.custom_extensions.get().split(",")
+            if ext.strip()
+        ]
+        extensions.extend(custom_exts)
+
+        exclude_files = [
+            f.strip() for f in self.exclude_files.get().split(",") if f.strip()
+        ]
+        exclude_folders = [
+            folder.strip()
+            for folder in self.exclude_folders.get().split(",")
+            if folder.strip()
+        ]
+
+        self.thread = threading.Thread(
+            target=self.run_extraction_thread,
+            args=(
+                folder_path,
+                mode,
+                include_hidden,
+                extensions,
+                exclude_files,
+                exclude_folders,
+                output_file_name,
+            ),
+            daemon=True,
+        )
+        self.thread.start()
+        self.master.after(100, self.check_queue)
+
+    def run_extraction_thread(self, *args) -> None:
+        """Run the extraction process in a separate thread."""
+
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(
+                self.file_processor.extract_files(*args, self.update_progress)
+            )
+        except Exception as exc:
+            logger.error("Error in extraction thread: %s", exc)
+            self.output_queue.put(("error", f"Extraction error: {exc}"))
+        finally:
+            self.loop.close()
+
+    async def update_progress(self, processed_files: int, total_files: int) -> None:
+        """Update progress bar and status with error handling."""
+
+        try:
+            progress = (processed_files / total_files * 100) if total_files > 0 else 0
+            self.master.after(0, lambda: self.progress_var.set(progress))
+            self.master.after(
+                0,
+                lambda: self.status_var.set(
+                    f"Processing: {processed_files}/{total_files} files"
+                ),
+            )
+        except Exception as exc:
+            logger.error("Error updating progress: %s", exc)
+
+    def check_queue(self) -> None:
+        """Check message queue with improved error handling."""
+
+        try:
+            while True:
+                message_type, message = self.output_queue.get_nowait()
+                if message_type == "info":
+                    self.output_text.insert(tk.END, message + "\n", "info")
+                elif message_type == "error":
+                    self.output_text.insert(tk.END, "ERROR: " + message + "\n", "error")
+                    logger.error(message)
+
+                self.output_text.see(tk.END)
+                self.output_text.update_idletasks()
+
+        except queue.Empty:
+            pass
+        finally:
+            if self.extraction_in_progress:
+                self.master.after(100, self.check_queue)
+            else:
+                self.reset_extraction_state()
+
+    def generate_report(self) -> None:
+        """Generate extraction report with improved formatting and error handling."""
+
+        if not self.file_processor.extraction_summary:
+            messagebox.showinfo(
+                "Info", "No extraction data available. Please run an extraction first."
+            )
+            return
+
+        try:
+            report = {
+                "timestamp": datetime.now().isoformat(),
+                "total_files": sum(
+                    ext_info["count"]
+                    for ext_info in self.file_processor.extraction_summary.values()
+                    if isinstance(ext_info, dict) and "count" in ext_info
+                ),
+                "total_size": sum(
+                    ext_info["total_size"]
+                    for ext_info in self.file_processor.extraction_summary.values()
+                    if isinstance(ext_info, dict) and "total_size" in ext_info
+                ),
+                "extension_summary": {
+                    ext: ext_info
+                    for ext, ext_info in self.file_processor.extraction_summary.items()
+                    if isinstance(ext_info, dict) and "count" in ext_info
+                },
+                "file_details": {
+                    path: details
+                    for path, details in self.file_processor.extraction_summary.items()
+                    if isinstance(details, dict) and "size" in details
+                },
+            }
+
+            report_file = "extraction_report.json"
+            with open(report_file, "w", encoding="utf-8") as report_handle:
+                json.dump(report, report_handle, indent=2, ensure_ascii=False)
+
+            messagebox.showinfo(
+                "Report Generated", f"Extraction report has been saved to {report_file}"
+            )
+            logger.info("Report generated successfully: %s", report_file)
+
+        except Exception as exc:
+            error_msg = f"Error generating report: {exc}"
+            logger.error(error_msg)
+            messagebox.showerror("Error", error_msg)
+
+    def save_config(self) -> None:
+        """Save current configuration with error handling."""
+
+        try:
+            self.config.set("output_file", self.output_file_name.get())
+            self.config.set("mode", self.mode.get())
+            self.config.set("include_hidden", str(self.include_hidden.get()))
+            self.config.set("exclude_files", self.exclude_files.get())
+            self.config.set("exclude_folders", self.exclude_folders.get())
+            logger.debug("Configuration saved successfully")
+        except Exception as exc:
+            logger.error("Error saving configuration: %s", exc)
+
+    def toggle_theme(self) -> None:
+        """Toggle between light and dark themes with error handling."""
+
+        try:
+            current_theme = self.config.get("theme", "light")
+            new_theme = "dark" if current_theme == "light" else "light"
+            self.apply_theme(new_theme)
+            self.config.set("theme", new_theme)
+            logger.info("Theme changed to: %s", new_theme)
+        except Exception as exc:
+            logger.error("Error toggling theme: %s", exc)
+
+    def apply_theme(self, theme: str) -> None:
+        """Apply theme with better color scheme and error handling."""
+
+        try:
+            if theme == "dark":
+                self.master.tk_setPalette(
+                    background="#2d2d2d",
+                    foreground="#ffffff",
+                    activeBackground="#4d4d4d",
+                    activeForeground="#ffffff",
+                )
+                self.output_text.config(
+                    bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff"
+                )
+            else:
+                self.master.tk_setPalette(
+                    background="#f0f0f0",
+                    foreground="#000000",
+                    activeBackground="#e0e0e0",
+                    activeForeground="#000000",
+                )
+                self.output_text.config(
+                    bg="#ffffff", fg="#000000", insertbackground="#000000"
+                )
+            logger.debug("Theme applied: %s", theme)
+        except Exception as exc:
+            logger.error("Error applying theme: %s", exc)
+
+    def reset_extraction_state(self) -> None:
+        """Reset the application state after extraction."""
+
+        self.extraction_in_progress = False
+        self.extract_button.config(state="normal")
+        self.status_var.set("Ready")
+        self.progress_var.set(0)
+
+    def cancel_extraction(self) -> None:
+        """Cancel ongoing extraction with proper cleanup."""
+
+        if self.extraction_in_progress:
+            self.extraction_in_progress = False
+            if self.thread and self.thread.is_alive():
+                self.output_queue.put(("info", "Extraction cancelled by user"))
+                logger.info("Extraction cancelled by user")
+            self.reset_extraction_state()
+
+    def on_closing(self) -> None:
+        """Handle application closing with proper cleanup."""
+
+        if self.extraction_in_progress:
+            if not messagebox.askyesno(
+                "Confirm Exit",
+                "An extraction is in progress. Are you sure you want to exit?",
+            ):
+                return
+            self.cancel_extraction()
+
+        try:
+            self.save_config()
+            logger.info("Application closed normally")
+            self.master.destroy()
+        except Exception as exc:
+            logger.error("Error during application shutdown: %s", exc)
+            self.master.destroy()
+
+
+__all__ = ["FileExtractorGUI"]
