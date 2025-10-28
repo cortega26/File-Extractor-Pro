@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
-import queue
-import threading
 import tkinter as tk
 from datetime import datetime
+from queue import Empty
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Callable, Dict
 
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
 from logging_utils import logger
-from processor import FileProcessor
+from services import ExtractorService
 
 STATUS_QUEUE_MAX_SIZE = 256
 QUEUE_IDLE_POLL_MS = 80
@@ -40,11 +38,12 @@ class FileExtractorGUI:
             self._configure_responsiveness()
 
             self.extraction_in_progress = False
-            self.loop = None
-            self.thread = None
 
-            self.output_queue = queue.Queue(maxsize=STATUS_QUEUE_MAX_SIZE)
-            self.file_processor = FileProcessor(self.output_queue)
+            self.service = ExtractorService(
+                queue_max_size=STATUS_QUEUE_MAX_SIZE,
+            )
+            self.output_queue = self.service.output_queue
+            self.file_processor = self.service.file_processor
 
             self.apply_theme(self.config.get("theme", "light"))
         except Exception as exc:
@@ -390,9 +389,8 @@ class FileExtractorGUI:
             if folder.strip()
         ]
 
-        self.thread = threading.Thread(
-            target=self.run_extraction_thread,
-            args=(
+        try:
+            self.service.start_extraction(
                 folder_path,
                 mode,
                 include_hidden,
@@ -400,26 +398,10 @@ class FileExtractorGUI:
                 exclude_files,
                 exclude_folders,
                 output_file_name,
-            ),
-            daemon=True,
-        )
-        self.thread.start()
-        self.master.after(QUEUE_ACTIVE_POLL_MS, self.check_queue)
-
-    def run_extraction_thread(self, *args) -> None:
-        """Run the extraction process in a separate thread."""
-
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
-        try:
-            self.loop.run_until_complete(
-                self.file_processor.extract_files(*args, self.update_progress)
+                self.update_progress,
             )
-        except Exception as exc:
-            logger.error("Error in extraction thread: %s", exc)
-            self.output_queue.put(("error", f"Extraction error: {exc}"))
         finally:
-            self.loop.close()
+            self.master.after(QUEUE_ACTIVE_POLL_MS, self.check_queue)
 
     async def update_progress(self, processed_files: int, total_files: int) -> None:
         """Update progress bar and status with error handling."""
@@ -453,9 +435,11 @@ class FileExtractorGUI:
                 self.output_text.see(tk.END)
                 self.output_text.update_idletasks()
 
-        except queue.Empty:
+        except Empty:
             pass
         finally:
+            if not self.service.is_running():
+                self.extraction_in_progress = False
             if self.extraction_in_progress:
                 delay = QUEUE_ACTIVE_POLL_MS if drained_any else QUEUE_IDLE_POLL_MS
                 self.master.after(delay, self.check_queue)
@@ -768,9 +752,7 @@ class FileExtractorGUI:
 
         if self.extraction_in_progress:
             self.extraction_in_progress = False
-            if self.thread and self.thread.is_alive():
-                self.output_queue.put(("info", "Extraction cancelled by user"))
-                logger.info("Extraction cancelled by user")
+            self.service.cancel()
             self.reset_extraction_state()
 
     def on_closing(self) -> None:

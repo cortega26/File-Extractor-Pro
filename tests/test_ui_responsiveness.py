@@ -57,11 +57,7 @@ def test_cancel_extraction_posts_queue_message(tk_root: tk.Tk) -> None:
     gui.progress_var.set(50)
     gui.status_var.set("Working")
 
-    class _AliveThread:
-        def is_alive(self) -> bool:
-            return True
-
-    gui.thread = _AliveThread()
+    gui.service.is_running = lambda: True  # type: ignore[assignment]
 
     while not gui.output_queue.empty():
         gui.output_queue.get_nowait()
@@ -70,7 +66,7 @@ def test_cancel_extraction_posts_queue_message(tk_root: tk.Tk) -> None:
 
     assert gui.output_queue.get_nowait() == (
         "info",
-        "Extraction cancelled by user",
+        "Extraction cancellation requested",
     )
     assert gui.extract_button["state"] == "normal"
     assert gui.progress_var.get() == 0
