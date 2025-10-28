@@ -1,10 +1,10 @@
 ID,Severity,Status,Notes,Next Action,Last Updated
-Q-001,S0,Done,"Pytest suite covers extraction flow, progress, and cancellation queue messaging.","Monitor queue behaviour during async refactors.",2025-10-28
-Q-002,S1,Not Started,"UI, config, and processor layers remain tightly coupled.","Draft plan to split UI and core services.",2025-10-28
-Q-003,S1,Not Started,"Async worker still intertwined with Tkinter lifecycle.","Investigate cancellation behaviour and managed runner design.",2025-10-28
-Q-004,S1,Not Started,"Layout constraints assume large displays; needs responsive adjustments.","Prototype responsive layout adjustments.",2025-10-28
-Q-005,S1,Done,"Traversal now streams processing within a single os.walk pass.","Monitor progress reporting on very large directories.",2025-10-31
-Q-006,S2,Not Started,"Configuration lacks schema validation and helpful errors.","Evaluate validation approach (pydantic/attrs/custom).",2025-10-28
-Q-007,S2,Done,"Chunked streaming avoids buffering large files; regression covered by tests.","Monitor memory footprint during high-volume runs.",2025-10-29
-Q-008,S2,Done,"Bounded status queue and tuned polling cadence to keep UI responsive during heavy runs.","Monitor queue saturation metrics under load testing.",2025-10-30
-Q-009,S3,Not Started,"Logging config installs handlers on import limiting flexibility.","Move logging setup to entry point and allow injection.",2025-10-28
+Q-001,S0,Done,"Pytest suite covers extraction flow, progress, and cancellation queue messaging.",Monitor queue behaviour during async refactors.,2025-10-28
+Q-002,S1,In Progress,Decoupling plan drafted covering service layer extraction from Tkinter GUI.,Create services package and move queue/loop management into ExtractorService skeleton.,2025-10-28
+Q-003,S1,Not Started,Async worker still intertwined with Tkinter lifecycle.,Investigate cancellation behaviour and managed runner design.,2025-10-28
+Q-004,S1,Not Started,Layout constraints assume large displays; needs responsive adjustments.,Prototype responsive layout adjustments.,2025-10-28
+Q-005,S1,Done,Traversal now streams processing within a single os.walk pass.,Monitor progress reporting on very large directories.,2025-10-31
+Q-006,S2,Not Started,Configuration lacks schema validation and helpful errors.,Evaluate validation approach (pydantic/attrs/custom).,2025-10-28
+Q-007,S2,Done,Chunked streaming avoids buffering large files; regression covered by tests.,Monitor memory footprint during high-volume runs.,2025-10-29
+Q-008,S2,Done,Bounded status queue and tuned polling cadence to keep UI responsive during heavy runs.,Monitor queue saturation metrics under load testing.,2025-10-30
+Q-009,S3,Not Started,Logging config installs handlers on import limiting flexibility.,Move logging setup to entry point and allow injection.,2025-10-28
