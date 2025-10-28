@@ -5,9 +5,10 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+from copy import deepcopy
 from datetime import datetime
 from queue import Empty, Full, Queue
-from typing import IO, Any, Callable, Dict, Sequence, Set
+from typing import IO, Any, Callable, Dict, MutableMapping, Sequence, Set
 
 from constants import CHUNK_SIZE, SPECIFICATION_FILES
 from logging_utils import logger
@@ -179,6 +180,48 @@ class FileProcessor:
             }
         except Exception as exc:
             logger.error("Error updating extraction summary: %s", exc)
+
+    def reset_state(self) -> None:
+        """Reset aggregation state between extraction runs."""
+
+        self.extraction_summary.clear()
+        self.processed_files.clear()
+        self._cache.clear()
+
+    def build_summary(self) -> Dict[str, Any]:
+        """Return an immutable snapshot of the latest extraction summary."""
+
+        extension_summary: Dict[str, Dict[str, int]] = {}
+        file_details: Dict[str, Dict[str, Any]] = {}
+        total_files = 0
+        total_size = 0
+
+        for key, value in self.extraction_summary.items():
+            if not isinstance(value, MutableMapping):
+                continue
+
+            if {"count", "total_size"}.issubset(value.keys()):
+                count = int(value.get("count", 0))
+                size = int(value.get("total_size", 0))
+                extension_summary[key] = {"count": count, "total_size": size}
+                total_files += count
+                total_size += size
+                continue
+
+            if {"size", "hash", "extension"}.issubset(value.keys()):
+                file_details[key] = {
+                    "size": int(value.get("size", 0)),
+                    "hash": str(value.get("hash", "")),
+                    "extension": str(value.get("extension", "")),
+                    "processed_time": str(value.get("processed_time", "")),
+                }
+
+        return {
+            "total_files": total_files,
+            "total_size": total_size,
+            "extension_summary": deepcopy(extension_summary),
+            "file_details": deepcopy(file_details),
+        }
 
     def extract_files(
         self,

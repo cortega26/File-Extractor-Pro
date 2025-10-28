@@ -1,6 +1,6 @@
 ID,Severity,Status,Notes,Next Action,Last Updated
 Q-001,S0,Done,"Pytest suite covers extraction flow, progress, and cancellation queue messaging.",Monitor queue behaviour during async refactors.,2025-10-28
-Q-002,S1,In Progress,ExtractorService now owns queue lifecycle and asyncio loop management.,Continue migrating GUI orchestration into services to enable alternate front ends.,2025-11-01
+Q-002,S1,Done,ExtractorService now encapsulates processor state and reporting for alternate UIs.,Prototype lightweight CLI around the service API.,2025-11-07
 Q-003,S1,Done,"Extraction worker now synchronous with cancellation event; Tkinter thread decoupled.",Monitor cancellation responsiveness under heavy filesystem loads.,2025-11-02
 Q-004,S1,Done,Responsive grid weights and adaptive minimum window size implemented.,Monitor usability feedback from small-screen testing.,2025-11-03
 Q-005,S1,Done,Traversal now streams processing within a single os.walk pass.,Monitor progress reporting on very large directories.,2025-10-31
