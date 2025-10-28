@@ -5,3 +5,9 @@
 !requirements.txt
 !user_guide.txt
 /backup
+*.pyc
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
