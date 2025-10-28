@@ -11,15 +11,15 @@ can quickly see what has been addressed and what remains.
 - **Q-001 (S0 · Testing)** — Status: *Done*
   - Notes: Pytest suite now covers extraction flow, progress reporting, and queue cancellation messaging.
   - Next Action: Monitor queue behaviours during future async refactors.
-- **Q-002 (S1 · Architecture)** — Status: *In Progress*
-  - Notes: `ExtractorService` now centralises queue lifecycle and event-loop management for background workers.
-  - Next Action: Continue migrating GUI orchestration into the service layer to support alternate front ends.
+- **Q-002 (S1 · Architecture)** — Status: *Done*
+  - Notes: `ExtractorService` now powers a reusable headless CLI, enabling automation without Tkinter dependencies.
+  - Next Action: Document CLI workflows and identify additional service endpoints for automation.
 - **Q-003 (S1 · Performance/Concurrency)** — Status: *Done*
   - Notes: Extraction now runs synchronously with a cancellation event, avoiding Tkinter event loop coupling.
   - Next Action: Monitor cancellation responsiveness under heavy filesystem loads.
-- **Q-004 (S1 · UX/UI)** — Status: *Not Started*
-  - Notes: Layout constraints still assume large displays; needs responsive resizing.
-  - Next Action: Prototype responsive layout adjustments.
+- **Q-004 (S1 · UX/UI)** — Status: *Done*
+  - Notes: Responsive layout profiles adapt widget grids for compact screens and high-DPI scaling.
+  - Next Action: Validate the refreshed layout against accessibility heuristics and gather user feedback.
 - **Q-005 (S1 · Performance)** — Status: *Done*
   - Notes: Traversal now streams matching files and processes them in a single `os.walk` pass.
   - Next Action: Monitor progress reporting accuracy on very large directory trees.

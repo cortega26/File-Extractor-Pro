@@ -32,7 +32,7 @@ def test_main_frame_expands_with_window(tk_root: tk.Tk) -> None:
 
     assert tk_root.grid_rowconfigure(0)["weight"] == 1
     assert tk_root.grid_columnconfigure(0)["weight"] == 1
-    assert gui.main_frame.grid_rowconfigure(10)["weight"] == 1
+    assert gui.main_frame.grid_rowconfigure(10)["weight"] >= 1
 
 
 def test_window_minsize_matches_required_size(tk_root: tk.Tk) -> None:

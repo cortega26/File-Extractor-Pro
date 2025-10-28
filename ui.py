@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
+from dataclasses import dataclass
 from queue import Empty
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
@@ -18,6 +19,60 @@ QUEUE_IDLE_POLL_MS = 80
 QUEUE_ACTIVE_POLL_MS = 20
 MIN_WINDOW_WIDTH = 480
 MIN_WINDOW_HEIGHT = 540
+COMPACT_WIDTH_THRESHOLD = 760
+HIGH_SCALING_THRESHOLD = 1.3
+
+
+@dataclass(frozen=True)
+class LayoutProfile:
+    """Responsive layout configuration used by the GUI."""
+
+    min_width: int
+    min_height: int
+    main_column_weights: tuple[int, int, int]
+    row_weights: Dict[int, int]
+    extension_columns: int
+    mode_columns: int
+    padding: tuple[int, int]
+
+
+def calculate_layout_profile(
+    *,
+    width: int,
+    height: int,
+    required_width: int,
+    required_height: int,
+    scaling: float,
+) -> LayoutProfile:
+    """Determine the layout profile given the current window metrics."""
+
+    compact_layout = (
+        width <= COMPACT_WIDTH_THRESHOLD or scaling >= HIGH_SCALING_THRESHOLD
+    )
+    width_factor = 0.9 if compact_layout else 0.75
+    height_factor = 0.9 if compact_layout else 0.7
+
+    min_width = max(required_width, int(width * width_factor))
+    min_height = max(required_height, int(height * height_factor))
+
+    main_column_weights = (1, 1, 1) if compact_layout else (0, 1, 0)
+    row_weights: Dict[int, int] = {10: 2, 4: 1}
+    if compact_layout:
+        row_weights[5] = 1
+
+    extension_columns = 2 if compact_layout else 4
+    mode_columns = 1 if compact_layout else 2
+    padding = (14, 12) if compact_layout else (10, 10)
+
+    return LayoutProfile(
+        min_width=min_width,
+        min_height=min_height,
+        main_column_weights=main_column_weights,
+        row_weights=row_weights,
+        extension_columns=extension_columns,
+        mode_columns=mode_columns,
+        padding=padding,
+    )
 
 
 class FileExtractorGUI:
@@ -34,6 +89,7 @@ class FileExtractorGUI:
             self.config = Config()
             self.setup_variables()
             self.setup_ui_components()
+            self._current_layout_profile: LayoutProfile | None = None
             self.connect_event_handlers()
             self._configure_responsiveness()
 
@@ -113,20 +169,16 @@ class FileExtractorGUI:
         ttk.Label(self.main_frame, text="Mode:").grid(row=2, column=0, sticky=tk.W)
         self.mode_frame = ttk.Frame(self.main_frame, style="Main.TFrame")
         self.mode_frame.grid(row=2, column=1, columnspan=2, sticky=tk.W + tk.E)
-        ttk.Radiobutton(
-            self.mode_frame,
-            text="Inclusion",
-            value="inclusion",
-            variable=self.mode,
-            style="Main.TRadiobutton",
-        ).grid(row=0, column=0, padx=(0, 10), sticky=tk.W)
-        ttk.Radiobutton(
-            self.mode_frame,
-            text="Exclusion",
-            value="exclusion",
-            variable=self.mode,
-            style="Main.TRadiobutton",
-        ).grid(row=0, column=1, sticky=tk.W)
+        self.mode_buttons: List[ttk.Radiobutton] = []
+        for text, value in (("Inclusion", "inclusion"), ("Exclusion", "exclusion")):
+            radio_button = ttk.Radiobutton(
+                self.mode_frame,
+                text=text,
+                value=value,
+                variable=self.mode,
+                style="Main.TRadiobutton",
+            )
+            self.mode_buttons.append(radio_button)
 
         ttk.Checkbutton(
             self.main_frame,
@@ -146,13 +198,15 @@ class FileExtractorGUI:
             sticky=tk.W + tk.E,
         )
 
-        for index, (ext, var) in enumerate(self.extension_vars.items()):
-            ttk.Checkbutton(
+        self.extension_checkbuttons: List[ttk.Checkbutton] = []
+        for ext, var in self.extension_vars.items():
+            check_button = ttk.Checkbutton(
                 self.extensions_frame,
                 text=ext,
                 variable=var,
                 style="Main.TCheckbutton",
-            ).grid(row=index // 4, column=index % 4, sticky=tk.W)
+            )
+            self.extension_checkbuttons.append(check_button)
 
         ttk.Label(self.main_frame, text="Custom Extensions (comma separated):").grid(
             row=5, column=0, sticky=tk.W
@@ -219,6 +273,9 @@ class FileExtractorGUI:
         self.setup_menu_bar()
         self.setup_status_bar()
 
+        self._arrange_extension_checkbuttons(columns=4)
+        self._arrange_mode_buttons(columns=2)
+
     def setup_output_area(self) -> None:
         """Set up output text area with improved formatting."""
 
@@ -271,29 +328,99 @@ class FileExtractorGUI:
     def _configure_responsiveness(self) -> None:
         """Configure geometry managers for responsive resizing."""
 
-        for row_index in range(12):
-            weight = 1 if row_index in {4, 10} else 0
-            self.main_frame.rowconfigure(row_index, weight=weight)
-
         self.master.rowconfigure(1, weight=0)
+        profile = self._determine_layout_profile()
+        self._apply_layout_profile(profile)
+        self.master.bind("<Configure>", self._handle_root_resize, add="+")
+
+    def _determine_layout_profile(self) -> LayoutProfile:
+        """Compute the active layout profile based on window geometry."""
 
         self.master.update_idletasks()
-        required_width = self.master.winfo_reqwidth()
-        required_height = self.master.winfo_reqheight()
-        min_width = max(MIN_WINDOW_WIDTH, int(required_width * 0.6))
-        min_height = max(MIN_WINDOW_HEIGHT, int(required_height * 0.6))
-        self.master.minsize(min_width, min_height)
+        width = max(self.master.winfo_width(), MIN_WINDOW_WIDTH)
+        height = max(self.master.winfo_height(), MIN_WINDOW_HEIGHT)
+        required_width = max(self.master.winfo_reqwidth(), MIN_WINDOW_WIDTH)
+        required_height = max(self.master.winfo_reqheight(), MIN_WINDOW_HEIGHT)
+        try:
+            scaling = float(self.master.tk.call("tk", "scaling"))
+        except tk.TclError:
+            scaling = 1.0
 
-        for column_index in range(3):
-            self.main_frame.columnconfigure(
-                column_index, weight=1 if column_index == 1 else 0
-            )
+        return calculate_layout_profile(
+            width=width,
+            height=height,
+            required_width=required_width,
+            required_height=required_height,
+            scaling=scaling,
+        )
+
+    def _apply_layout_profile(self, profile: LayoutProfile) -> None:
+        """Apply layout weights and geometry adjustments for the given profile."""
+
+        if self._current_layout_profile == profile:
+            return
+
+        self._current_layout_profile = profile
+
+        self.master.minsize(profile.min_width, profile.min_height)
+        self.main_frame.configure(padding=profile.padding)
+
+        for column_index, weight in enumerate(profile.main_column_weights):
+            self.main_frame.columnconfigure(column_index, weight=weight)
+
+        for row_index in range(12):
+            weight = profile.row_weights.get(row_index, 0)
+            self.main_frame.rowconfigure(row_index, weight=weight)
+
+        for column_index in range(6):
+            weight = 1 if column_index < profile.extension_columns else 0
+            self.extensions_frame.columnconfigure(column_index, weight=weight)
 
         for column_index in range(4):
-            self.extensions_frame.columnconfigure(column_index, weight=1)
+            weight = 1 if column_index < profile.mode_columns else 0
+            self.mode_frame.columnconfigure(column_index, weight=weight)
 
-        for column_index in range(self.mode_frame.grid_size()[0]):
-            self.mode_frame.columnconfigure(column_index, weight=1)
+        self._arrange_extension_checkbuttons(profile.extension_columns)
+        self._arrange_mode_buttons(profile.mode_columns)
+
+    def _handle_root_resize(self, event: tk.Event) -> None:
+        """Recompute the layout profile when the window dimensions change."""
+
+        if event.widget is not self.master:
+            return
+
+        profile = self._determine_layout_profile()
+        self._apply_layout_profile(profile)
+
+    def _arrange_extension_checkbuttons(self, columns: int) -> None:
+        """Arrange extension checkbuttons based on the available columns."""
+
+        effective_columns = max(1, columns)
+        for button in self.extension_checkbuttons:
+            button.grid_forget()
+
+        for index, button in enumerate(self.extension_checkbuttons):
+            row_index = index // effective_columns
+            column_index = index % effective_columns
+            button.grid(
+                row=row_index,
+                column=column_index,
+                sticky=tk.W,
+                padx=(0, 8),
+                pady=(0, 4),
+            )
+
+    def _arrange_mode_buttons(self, columns: int) -> None:
+        """Arrange mode radio buttons for the given number of columns."""
+
+        effective_columns = max(1, columns)
+        for button in self.mode_buttons:
+            button.grid_forget()
+
+        for index, button in enumerate(self.mode_buttons):
+            row_index = index // effective_columns
+            column_index = index % effective_columns
+            button.grid(row=row_index, column=column_index, sticky=tk.W, padx=(0, 10))
 
     def connect_event_handlers(self) -> None:
         """Connect all event handlers."""
