@@ -20,9 +20,9 @@ can quickly see what has been addressed and what remains.
 - **Q-004 (S1 · UX/UI)** — Status: *Not Started*
   - Notes: Layout constraints still assume large displays; needs responsive resizing.
   - Next Action: Prototype responsive layout adjustments.
-- **Q-005 (S1 · Performance)** — Status: *Not Started*
-  - Notes: `os.walk` invoked twice for counting and processing, doubling I/O.
-  - Next Action: Profile traversal and design single-pass strategy.
+- **Q-005 (S1 · Performance)** — Status: *Done*
+  - Notes: Traversal now streams matching files and processes them in a single `os.walk` pass.
+  - Next Action: Monitor progress reporting accuracy on very large directory trees.
 
 ## Should Have (Severity S2)
 - **Q-006 (S2 · Maintainability)** — Status: *Not Started*

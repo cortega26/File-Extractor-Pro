@@ -7,7 +7,7 @@ import hashlib
 import os
 from datetime import datetime
 from queue import Empty, Full, Queue
-from typing import Any, Awaitable, Callable, Dict, List, Set
+from typing import Any, Awaitable, Callable, Dict, Sequence, Set
 
 import aiofiles
 
@@ -153,16 +153,16 @@ class FileProcessor:
         folder_path: str,
         mode: str,
         include_hidden: bool,
-        extensions: List[str],
-        exclude_files: List[str],
-        exclude_folders: List[str],
+        extensions: Sequence[str],
+        exclude_files: Sequence[str],
+        exclude_folders: Sequence[str],
         output_file_name: str,
         progress_callback: Callable[[int, int], Awaitable[None]],
     ) -> None:
         """Extract files with improved error handling and progress reporting."""
 
         processed_count = 0
-        matched_files: List[str] = []
+        total_files = 0
         seen_paths: Set[str] = set()
 
         try:
@@ -205,21 +205,22 @@ class FileProcessor:
                             continue
 
                         file_ext = os.path.splitext(file)[1]
-                        if (mode == "inclusion" and file_ext in extensions) or (
-                            mode == "exclusion" and file_ext not in extensions
-                        ):
-                            seen_paths.add(file_path)
-                            matched_files.append(file_path)
+                        should_process = False
+                        if mode == "inclusion":
+                            should_process = file_ext in extensions
+                        elif mode == "exclusion":
+                            should_process = file_ext not in extensions
 
-                total_files = len(matched_files)
+                        if not should_process:
+                            continue
 
-                for file_path in matched_files:
-                    if os.path.abspath(file_path) == output_file_abs:
-                        continue
-                    await self.process_file(file_path, output)
-                    self.processed_files.add(file_path)
-                    processed_count += 1
-                    await progress_callback(processed_count, total_files)
+                        seen_paths.add(file_path)
+                        total_files += 1
+
+                        await self.process_file(file_path, output)
+                        self.processed_files.add(file_path)
+                        processed_count += 1
+                        await progress_callback(processed_count, total_files)
 
                 self._enqueue_message(
                     "info",
