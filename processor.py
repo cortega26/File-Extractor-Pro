@@ -56,16 +56,44 @@ class FileProcessor:
 
             normalized_path = os.path.normpath(file_path).replace(os.path.sep, "/")
 
-            content = []
-            async with aiofiles.open(file_path, "r", encoding="utf-8") as source:
-                while chunk := await source.read(CHUNK_SIZE):
-                    content.append(chunk)
-
-            file_content = "".join(content)
-            await output_file.write(f"{normalized_path}:\n{file_content}\n\n\n")
-
             file_ext = os.path.splitext(file_path)[1]
-            file_hash = hashlib.sha256(file_content.encode()).hexdigest()
+            sha256 = hashlib.sha256()
+
+            can_restore_output = all(
+                hasattr(output_file, method) for method in ("tell", "seek", "truncate")
+            )
+            start_position = 0
+            if can_restore_output:
+                start_position = await output_file.tell()
+
+            try:
+                header_written = False
+
+                async with aiofiles.open(file_path, "r", encoding="utf-8") as source:
+                    while True:
+                        chunk = await source.read(CHUNK_SIZE)
+                        if not chunk:
+                            break
+
+                        if not header_written:
+                            await output_file.write(f"{normalized_path}:\n")
+                            header_written = True
+
+                        sha256.update(chunk.encode("utf-8"))
+                        await output_file.write(chunk)
+
+                if not header_written:
+                    await output_file.write(f"{normalized_path}:\n")
+
+                await output_file.write("\n\n\n")
+
+            except Exception:
+                if can_restore_output:
+                    await output_file.seek(start_position)
+                    await output_file.truncate()
+                raise
+
+            file_hash = sha256.hexdigest()
 
             self._update_extraction_summary(file_ext, file_path, file_size, file_hash)
 

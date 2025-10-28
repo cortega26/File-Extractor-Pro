@@ -5,6 +5,6 @@ Q-003,S1,Not Started,"Async worker still intertwined with Tkinter lifecycle.","I
 Q-004,S1,Not Started,"Layout constraints assume large displays; needs responsive adjustments.","Prototype responsive layout adjustments.",2025-10-28
 Q-005,S1,Not Started,"os.walk invoked twice causing duplicate I/O.","Profile traversal and design single-pass strategy.",2025-10-28
 Q-006,S2,Not Started,"Configuration lacks schema validation and helpful errors.","Evaluate validation approach (pydantic/attrs/custom).",2025-10-28
-Q-007,S2,Not Started,"Large files buffered fully before streaming to output.","Implement chunked write-through to avoid memory spikes.",2025-10-28
+Q-007,S2,Done,"Chunked streaming avoids buffering large files; regression covered by tests.","Monitor memory footprint during high-volume runs.",2025-10-29
 Q-008,S2,Not Started,"Progress queue can flood UI, causing lag under heavy load.","Prototype bounded queue with adaptive polling.",2025-10-28
 Q-009,S3,Not Started,"Logging config installs handlers on import limiting flexibility.","Move logging setup to entry point and allow injection.",2025-10-28
