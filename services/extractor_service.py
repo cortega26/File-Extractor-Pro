@@ -302,6 +302,21 @@ class ExtractorService:
         return dict(self._latest_state_payload)
 
 
+    # Fix: Q-108
+    def get_last_run_metrics(self) -> dict[str, float | int] | None:
+        """Expose the processor's most recent instrumentation snapshot."""
+
+        processor = getattr(self, "_file_processor", None)
+        if processor is None:
+            return None
+        metrics = getattr(processor, "last_run_metrics", None)
+        if callable(metrics):
+            metrics = metrics()
+        if not metrics:
+            return None
+        return dict(metrics)
+
+
 __all__ = [
     "ExtractionRequest",
     "ExtractorService",

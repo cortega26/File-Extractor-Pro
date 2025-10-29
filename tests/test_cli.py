@@ -263,6 +263,41 @@ def test_run_cli_returns_error_on_failure(caplog, tmp_path: Path) -> None:
         logger.setLevel(original_level)
 
 
+# Fix: Q-101
+def test_run_cli_defaults_extensions_for_manual_options(tmp_path: Path) -> None:
+    options = CLIOptions(
+        folder_path=tmp_path,
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file=tmp_path / "out.txt",
+        report_path=None,
+        max_file_size_mb=None,
+        poll_interval=0.0,
+        log_level="INFO",
+    )
+
+    service_instance: SuccessfulService | None = None
+
+    def factory() -> SuccessfulService:
+        nonlocal service_instance
+        service_instance = SuccessfulService()
+        return service_instance
+
+    exit_code = run_cli(
+        options,
+        service_factory=factory,
+        configure_logger_handler=False,
+    )
+
+    assert exit_code == 0
+    assert service_instance is not None
+    assert service_instance.received_arguments is not None
+    assert service_instance.received_arguments["extensions"] == list(COMMON_EXTENSIONS)
+
+
 # Fix: Q-106
 def test_run_cli_uses_last_state_payload_when_queue_drops(tmp_path: Path) -> None:
     options = CLIOptions(
@@ -371,6 +406,7 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
 
         assert exit_code == 0
         assert any("dropped_messages" in message for message in caplog.messages)
+        assert any("skipped=" in message for message in caplog.messages)
     finally:
         logger.handlers[:] = original_handlers
         logger.propagate = original_propagate

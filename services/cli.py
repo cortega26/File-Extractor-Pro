@@ -6,7 +6,7 @@ import argparse
 import logging
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Callable, Iterable, Protocol, Sequence, cast
@@ -281,6 +281,13 @@ def run_cli(
     else:
         logger.setLevel(getattr(logging, options.log_level.upper(), logging.INFO))
 
+    # Fix: Q-101 - guard manual invocations that omit extensions in inclusion mode.
+    if options.mode == "inclusion" and not options.extensions:
+        logger.debug(
+            "No extensions provided for inclusion run; defaulting to COMMON_EXTENSIONS"
+        )
+        options = replace(options, extensions=tuple(COMMON_EXTENSIONS))
+
     # Fix: Q-105 - allow CLI callers to configure the soft file size cap.
     # Fix: Q-104 - ensure strict typing of injected processor factories.
     processor_factory: Callable[[Queue[tuple[str, object]]], FileProcessor] | None = None
@@ -357,11 +364,12 @@ def run_cli(
                 queue_depth = metrics.get("max_queue_depth", 0)
                 total_files = metrics.get("total_files", processed)
                 dropped_messages = metrics.get("dropped_messages", 0)
+                skipped_files = metrics.get("skipped_files", 0)
                 logger.info(
                     (
                         "Extraction metrics summary: processed=%s, total=%s, "
                         "elapsed=%.2fs, rate=%.2f files/s, max_queue_depth=%s, "
-                        "dropped_messages=%s"
+                        "dropped_messages=%s, skipped=%s"
                     ),
                     processed,
                     total_files,
@@ -369,6 +377,7 @@ def run_cli(
                     rate,
                     queue_depth,
                     dropped_messages,
+                    skipped_files,
                 )
 
     if options.report_path:
