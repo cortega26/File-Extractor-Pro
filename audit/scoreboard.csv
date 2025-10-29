@@ -1,10 +1,11 @@
 ID,Severity,Status,Notes,Next Action,Last Updated
-Q-001,S0,In Progress,"Pytest suite now asserts queue backpressure behaviour to guard saturation regressions.",Add CLI regression harness covering message draining with real queues.,2025-11-09
-Q-002,S1,In Progress,"ExtractorService accepts typed ExtractionRequest payloads to decouple UI/CLI orchestration.",Update architecture docs and migrate remaining callers to the request workflow.,2025-11-09
-Q-003,S1,Done,"Extraction worker now synchronous with cancellation event; Tkinter thread decoupled.",Monitor cancellation responsiveness under heavy filesystem loads.,2025-11-02
-Q-004,S1,Done,"Dynamic layout profiles adapt controls for compact screens and high-DPI displays.",Validate responsive layout against accessibility heuristics.,2025-11-08
-Q-005,S1,Done,Traversal now streams processing within a single os.walk pass.,Monitor progress reporting on very large directories.,2025-10-31
-Q-006,S2,Done,"Config.update_settings atomically validates bulk updates; UI now persists settings through the typed schema.",Monitor telemetry for unexpected configuration validation failures.,2025-11-06
-Q-007,S2,Done,Chunked streaming avoids buffering large files; regression covered by tests.,Monitor memory footprint during high-volume runs.,2025-10-29
-Q-008,S2,Done,Bounded status queue and tuned polling cadence to keep UI responsive during heavy runs.,Monitor queue saturation metrics under load testing.,2025-10-30
-Q-009,S3,Done,Logging configuration now opt-in and supports dependency injection.,Monitor usage patterns from non-GUI consumers.,2025-11-05
+Q-101,S1,Not Started,"CLI defaults to empty extensions so headless extractions process zero files.","Expand missing extensions to COMMON_EXTENSIONS (or wildcard) and add regression coverage.",2025-11-10
+Q-102,S1,Not Started,"Progress denominator grows with processed files causing the bar to sit at 100% immediately.","Estimate total files before starting (or switch to indeterminate mode) and emit progress with a stable total.",2025-11-10
+Q-103,S1,Not Started,"ui.py remains a ~1k-line monolith combining layout, state, theming, and service calls.","Extract presenter/controller modules and widget factories with targeted unit tests.",2025-11-10
+Q-104,S1,Not Started,"mypy --strict . fails with 62 errors across services, UI, and tests.","Annotate modules, add Tk stubs, and configure strictness tiers so type checking can gate CI.",2025-11-10
+Q-105,S2,Not Started,"Files >100MB raise MemoryError and are skipped entirely.","Replace static limit with configurable streaming guard tied to available memory.",2025-11-10
+Q-106,S2,Not Started,"Queue backpressure drops arbitrary messages, risking loss of terminal state payloads.","Drain batches or route state updates through a dedicated channel before enqueueing new info.",2025-11-10
+Q-107,S2,Not Started,"No keyboard mnemonics or focus guidance exist; tab order is long and linear.","Define Alt-based accelerators and document keyboard workflow in the UI.",2025-11-10
+Q-108,S2,Not Started,"No telemetry for throughput, elapsed time, or queue saturation.","Emit structured run summaries with timings and queue depth metrics.",2025-11-10
+Q-109,S3,Not Started,"README lacks CLI usage guidance so operators miss the need for --extensions.","Add CLI section covering defaults, required flags, and worked examples.",2025-11-10
+Q-110,S3,Not Started,"Coverage tooling/thresholds absent despite policy targets.","Integrate pytest-cov with ≥80% overall and ≥90% changed-module thresholds in CI.",2025-11-10
