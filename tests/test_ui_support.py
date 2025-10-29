@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from types import SimpleNamespace
 
 import pytest
 
@@ -72,11 +73,86 @@ def test_status_banner_respects_severity_styles(tk_root: tk.Tk) -> None:
     assert banner._current_severity == "error"
     assert banner._message_var.get() == "Extraction failed"
 
-    banner.show_success("Extraction complete")
+    banner.show_success("Extraction complete", detail="Run summary: processed 3 files")
     assert banner._current_severity == "success"
     assert "complete" in banner._message_var.get().lower()
+    assert "run summary" in banner._detail_var.get().lower()
 
 
+# Fix: Q-103
+def test_queue_dispatcher_routes_messages() -> None:
+    from ui_support import QueueDispatcher
+
+    class Transcript:
+        def __init__(self) -> None:
+            self.lines: list[tuple[str, str, str | None]] = []
+
+        def insert(self, index: str, text: str, tag: str | None = None) -> None:
+            self.lines.append((index, text, tag))
+
+        def see(self, index: str) -> None:  # pragma: no cover - not used
+            self.last_seen = index  # type: ignore[attr-defined]
+
+        def update_idletasks(self) -> None:  # pragma: no cover - not used
+            return None
+
+    transcript = Transcript()
+    banner_calls: list[tuple[str, object]] = []
+
+    dispatcher = QueueDispatcher(
+        transcript=transcript,
+        banner_callback=lambda level, payload: banner_calls.append((level, payload)),
+        state_callback=lambda payload: banner_calls.append(("state", payload)),
+    )
+
+    result = dispatcher.dispatch("warning", "Check filters")
+
+    assert result.wrote_to_transcript
+    assert transcript.lines[-1][1].startswith("WARNING: Check filters")
+    assert banner_calls[-1] == ("warning", "Check filters")
+
+
+# Fix: Q-103
+def test_queue_dispatcher_handles_state_payload() -> None:
+    from ui_support import QueueDispatcher
+
+    transcript = SimpleNamespace(
+        lines=[],
+        insert=lambda *args, **kwargs: transcript.lines.append(args),  # type: ignore[var-annotated]
+        see=lambda *_args, **_kwargs: None,
+        update_idletasks=lambda: None,
+    )
+
+    states: list[dict[str, object]] = []
+    dispatcher = QueueDispatcher(
+        transcript=transcript,
+        banner_callback=lambda *_args: None,
+        state_callback=lambda payload: states.append(payload),
+    )
+
+    result = dispatcher.dispatch("state", {"status": "finished"})
+
+    assert not result.wrote_to_transcript
+    assert states == [{"status": "finished"}]
+
+
+# Fix: ux_accessibility_keyboard_hints
+def test_shortcut_hint_manager_announces_hints(tk_root: tk.Tk) -> None:
+    from ui_support import ShortcutHintManager
+
+    status_var = tk.StringVar(value="Ready")
+    button = ttk.Button(tk_root, text="Action")
+    button.pack()
+
+    manager = ShortcutHintManager(status_var)
+    manager.register_hints([(button, "Alt+A — activate action")])
+    manager.set_default_message("Ready")
+
+    button.event_generate("<Enter>")
+    assert "Alt+A" in status_var.get()
+
+    button.event_generate("<Leave>")
+    assert status_var.get() == "Ready"
 # Fix: Q-107
 def test_keyboard_manager_configures_focus_and_shortcuts(tk_root: tk.Tk) -> None:
     from ui_support import KeyboardManager
