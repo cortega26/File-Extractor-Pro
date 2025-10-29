@@ -105,6 +105,8 @@ def test_parse_arguments_normalises_values(tmp_path: Path) -> None:
             str(tmp_path / "output.txt"),
             "--report",
             str(tmp_path / "report.json"),
+            "--max-file-size-mb",
+            "256",
             "--poll-interval",
             "0.0",
             "--log-level",
@@ -119,6 +121,7 @@ def test_parse_arguments_normalises_values(tmp_path: Path) -> None:
     assert options.exclude_folders == ("__pycache__", "build")
     assert options.output_file.name == "output.txt"
     assert options.report_path and options.report_path.name == "report.json"
+    assert options.max_file_size_mb == 256
     assert options.poll_interval == 0.0
     assert options.log_level == "DEBUG"
 
@@ -140,6 +143,7 @@ def test_run_cli_success(caplog, tmp_path: Path) -> None:
         exclude_folders=(),
         output_file=tmp_path / "out.txt",
         report_path=tmp_path / "report.json",
+        max_file_size_mb=None,
         poll_interval=0.0,
         log_level="INFO",
     )
@@ -190,6 +194,7 @@ def test_run_cli_returns_error_on_failure(caplog, tmp_path: Path) -> None:
         exclude_folders=(),
         output_file=tmp_path / "out.txt",
         report_path=None,
+        max_file_size_mb=None,
         poll_interval=0.0,
         log_level="INFO",
     )
@@ -215,3 +220,37 @@ def test_run_cli_returns_error_on_failure(caplog, tmp_path: Path) -> None:
         logger.handlers[:] = original_handlers
         logger.propagate = original_propagate
         logger.setLevel(original_level)
+
+
+# Fix: Q-105
+def test_run_cli_configures_file_processor_threshold(tmp_path: Path) -> None:
+    options = CLIOptions(
+        folder_path=tmp_path,
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file=tmp_path / "out.txt",
+        report_path=None,
+        max_file_size_mb=128,
+        poll_interval=0.0,
+        log_level="INFO",
+    )
+
+    recorded_bytes: list[int | None] = []
+
+    class RecordingService(SuccessfulService):
+        def __init__(self, *, file_processor_factory, **_kwargs):
+            super().__init__()
+            processor = file_processor_factory(self.output_queue)
+            recorded_bytes.append(getattr(processor, "_max_file_size_bytes", None))
+
+    exit_code = run_cli(
+        options,
+        service_factory=RecordingService,
+        configure_logger_handler=False,
+    )
+
+    assert exit_code == 0
+    assert recorded_bytes == [128 * 1024 * 1024]

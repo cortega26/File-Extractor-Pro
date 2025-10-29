@@ -3,6 +3,7 @@
 *.txt
 *.ini
 !requirements.txt
+!requirements-dev.txt
 !user_guide.txt
 /backup
 *.pyc
