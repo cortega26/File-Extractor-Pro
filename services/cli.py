@@ -80,6 +80,21 @@ def _split_csv(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(normalised))
 
 
+# Fix: Q-101
+def _normalise_extensions(raw_extensions: Iterable[str]) -> tuple[str, ...]:
+    """Ensure CLI extensions include a leading dot and deduplicate values."""
+
+    normalised: list[str] = []
+    for extension in raw_extensions:
+        candidate = extension.strip().lower()
+        if not candidate:
+            continue
+        if candidate not in {"*", "*.*"} and not candidate.startswith("."):
+            candidate = f".{candidate}"
+        normalised.append(candidate)
+    return tuple(dict.fromkeys(normalised))
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for the CLI."""
 
@@ -154,7 +169,8 @@ def parse_arguments(argv: Sequence[str] | None = None) -> CLIOptions:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    extensions = _split_csv(args.extensions)
+    raw_extensions = _split_csv(args.extensions)
+    extensions = _normalise_extensions(raw_extensions)
     if args.mode == "inclusion" and not extensions:
         extensions = tuple(COMMON_EXTENSIONS)
     exclude_files = _split_csv(args.exclude_files)

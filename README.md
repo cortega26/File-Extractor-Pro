@@ -62,9 +62,14 @@ python -m services.cli /path/to/folder
 
 - `--mode` defaults to `inclusion`. When omitted, the CLI processes files with
   a curated set of common extensions (for example `.txt`, `.md`, `.py`).
-- Pass explicit extensions to override the defaults: `--extensions txt md pdf`.
+- Extensions may be supplied with or without a leading dot. `--extensions txt md`
+  is normalised to `(.txt, .md)` automatically.
+- Provide comma-separated lists for long extension sets: `--extensions "txt,md,pdf"`.
 - In exclusion mode, omit `--extensions` to process all files or provide the
   extensions that should be skipped.
+- Append `--include-hidden` to traverse hidden files and folders.
+- Each run logs throughput metrics (files processed, elapsed time, files per
+  second) at the end of the execution to aid monitoring.
 
 ## Configuration
 
