@@ -133,6 +133,12 @@ def test_parse_arguments_defaults_extensions_for_inclusion(tmp_path: Path) -> No
     assert options.extensions == tuple(COMMON_EXTENSIONS)
 
 
+def test_parse_arguments_accepts_wildcard(tmp_path: Path) -> None:
+    options = parse_arguments([str(tmp_path), "--extensions", "*"])
+
+    assert options.extensions == ("*",)
+
+
 def test_run_cli_success(caplog, tmp_path: Path) -> None:
     options = CLIOptions(
         folder_path=tmp_path,
@@ -254,3 +260,60 @@ def test_run_cli_configures_file_processor_threshold(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert recorded_bytes == [128 * 1024 * 1024]
+
+
+# Fix: Q-108
+def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
+    options = CLIOptions(
+        folder_path=tmp_path,
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file=tmp_path / "out.txt",
+        report_path=None,
+        max_file_size_mb=None,
+        poll_interval=0.0,
+        log_level="INFO",
+    )
+
+    class MetricsService(SuccessfulService):
+        def __init__(self) -> None:
+            super().__init__()
+
+            class StubProcessor:
+                def __init__(self) -> None:
+                    self.last_run_metrics = {
+                        "processed_files": 2,
+                        "total_files": 2,
+                        "elapsed_seconds": 1.5,
+                        "files_per_second": 1.33,
+                        "max_queue_depth": 1,
+                    }
+
+            self.file_processor = StubProcessor()
+
+    original_handlers = list(logger.handlers)
+    original_propagate = logger.propagate
+    original_level = logger.level
+
+    caplog.set_level(logging.INFO, logger="file_extractor")
+    logger.handlers.clear()
+    logger.propagate = True
+
+    try:
+        exit_code = run_cli(
+            options,
+            service_factory=MetricsService,
+            configure_logger_handler=False,
+        )
+
+        assert exit_code == 0
+        assert any(
+            "Extraction metrics summary" in message for message in caplog.messages
+        )
+    finally:
+        logger.handlers[:] = original_handlers
+        logger.propagate = original_propagate
+        logger.setLevel(original_level)

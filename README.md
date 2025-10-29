@@ -64,6 +64,8 @@ python -m services.cli /path/to/folder
   a curated set of common extensions (for example `.txt`, `.md`, `.py`).
 - Extensions may be supplied with or without a leading dot. `--extensions txt md`
   is normalised to `(.txt, .md)` automatically.
+- Use `--extensions "*"` to process all file types in inclusion mode while still
+  respecting exclude patterns.
 - Provide comma-separated lists for long extension sets: `--extensions "txt,md,pdf"`.
 - In exclusion mode, omit `--extensions` to process all files or provide the
   extensions that should be skipped.
