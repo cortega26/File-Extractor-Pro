@@ -248,6 +248,8 @@ def test_process_file_allows_large_files_beyond_soft_cap(
         warnings.append(message_queue.get_nowait())
 
     assert any(level == "warning" for level, _ in warnings)
+    assert processor._large_file_warning_count == 1
+    assert getattr(processor, "_max_file_size_bytes") == 50 * 1024 * 1024
 
 
 # Fix: Q-105
@@ -542,6 +544,26 @@ def test_enqueue_message_replaces_oldest_state_when_only_states_present() -> Non
     )
 
 
+def test_enqueue_message_preserves_state_when_only_states_present_and_new_info() -> None:
+    """Non-state messages should be dropped when only state payloads are buffered."""
+
+    message_queue: queue.Queue[Tuple[str, object]] = queue.Queue(maxsize=2)
+    processor = FileProcessor(message_queue)
+
+    message_queue.put(("state", {"result": "pending"}))
+    message_queue.put(("state", {"result": "running"}))
+
+    processor._enqueue_message("info", "new message")
+
+    drained: list[Tuple[str, object]] = []
+    while not message_queue.empty():
+        drained.append(message_queue.get_nowait())
+
+    assert all(level == "state" for level, _ in drained)
+    assert all(payload != "new message" for _, payload in drained)
+    assert processor._dropped_messages >= 1
+
+
 # Fix: Q-106
 def test_enqueue_message_survives_concurrent_refill() -> None:
     """Concurrent producers should not prevent the new payload from being enqueued."""
@@ -596,3 +618,4 @@ def test_build_summary_and_reset_state(tmp_path: Path) -> None:
     cleared_summary = processor.build_summary()
     assert cleared_summary["total_files"] == 0
     assert not cleared_summary["file_details"]
+    assert processor._large_file_warning_count == 0

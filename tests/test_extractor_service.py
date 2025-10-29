@@ -291,6 +291,7 @@ def test_get_last_run_metrics_returns_processor_snapshot(tmp_path: Path) -> None
     assert metrics is not None
     assert metrics["processed_files"] >= 1
     assert "completed_at" in metrics
+    assert "service_dropped_messages" in metrics
 
 
 # Fix: Q-108
@@ -313,6 +314,8 @@ def test_state_payload_includes_metrics(tmp_path: Path) -> None:
                 "total_files_known": True,
                 "total_files_estimated": 3,
                 "completed_at": "2025-01-01T00:00:00",
+                "large_file_warnings": 0,
+                "max_file_size_bytes": 0,
             }
 
     service = ExtractorService(
@@ -350,6 +353,8 @@ def test_state_payload_includes_metrics(tmp_path: Path) -> None:
     assert metrics_payload["skipped_files"] == 1
     assert "total_files_known" in metrics_payload
     assert "completed_at" in metrics_payload
+    assert "service_dropped_messages" in metrics_payload
+    assert "service_dropped_state_messages" in metrics_payload
 
 
 # Fix: Q-106
@@ -364,6 +369,22 @@ def test_cancel_drops_oldest_message_when_queue_full() -> None:
     assert service._cancel_event.is_set()
     remaining = queue.get_nowait()
     assert remaining == ("info", "Extraction cancellation requested")
+
+
+# Fix: Q-106
+def test_enqueue_control_message_preserves_state_only_queue() -> None:
+    queue: Queue[tuple[str, object]] = Queue(maxsize=2)
+    service = ExtractorService(output_queue=queue)
+
+    queue.put(("state", {"result": "pending"}))
+    queue.put(("state", {"result": "running"}))
+
+    service._enqueue_control_message("info", "update")
+
+    drained = list(queue.queue)
+    assert all(level == "state" for level, _ in drained)
+    assert all(payload != "update" for _, payload in drained)
+    assert getattr(service, "_dropped_control_messages") >= 1
 
 
 # Fix: Q-106

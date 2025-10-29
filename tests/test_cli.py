@@ -325,6 +325,42 @@ def test_run_cli_defaults_extensions_for_manual_options(tmp_path: Path) -> None:
     assert service_instance.received_arguments["extensions"] == list(COMMON_EXTENSIONS)
 
 
+# Fix: Q-101
+def test_run_cli_normalises_mode_case(tmp_path: Path) -> None:
+    options = CLIOptions(
+        folder_path=tmp_path,
+        mode="INCLUSION",
+        include_hidden=False,
+        extensions=(),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file=tmp_path / "out.txt",
+        report_path=None,
+        max_file_size_mb=None,
+        poll_interval=0.0,
+        log_level="INFO",
+    )
+
+    service_instance: SuccessfulService | None = None
+
+    def factory() -> SuccessfulService:
+        nonlocal service_instance
+        service_instance = SuccessfulService()
+        return service_instance
+
+    exit_code = run_cli(
+        options,
+        service_factory=factory,
+        configure_logger_handler=False,
+    )
+
+    assert exit_code == 0
+    assert service_instance is not None
+    assert service_instance.received_arguments is not None
+    assert service_instance.received_arguments["mode"] == "inclusion"
+    assert service_instance.received_arguments["extensions"] == list(COMMON_EXTENSIONS)
+
+
 # Fix: Q-106
 def test_run_cli_uses_last_state_payload_when_queue_drops(tmp_path: Path) -> None:
     options = CLIOptions(
@@ -416,9 +452,21 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
                         "skipped_files": 0,
                         "total_files_known": True,
                         "completed_at": "2025-01-01T00:00:00",
+                        "large_file_warnings": 1,
+                        "max_file_size_bytes": 4096,
                     }
 
             self.file_processor = StubProcessor()
+            self._service_metrics = dict(self.file_processor.last_run_metrics)
+            self._service_metrics.update(
+                {
+                    "service_dropped_messages": 2,
+                    "service_dropped_state_messages": 1,
+                }
+            )
+
+        def get_last_run_metrics(self) -> dict[str, float | int | str]:
+            return dict(self._service_metrics)
 
     original_handlers = list(logger.handlers)
     original_propagate = logger.propagate
@@ -436,9 +484,17 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
         )
 
         assert exit_code == 0
-        assert any("dropped_messages" in message for message in caplog.messages)
-        assert any("skipped=" in message for message in caplog.messages)
-        assert any("completed_at" in message for message in caplog.messages)
+        summary_messages = [
+            message
+            for message in caplog.messages
+            if "Extraction metrics summary" in message
+        ]
+        assert summary_messages, "Expected metrics summary to be logged"
+        summary_text = " ".join(summary_messages)
+        assert "service_dropped_state_messages" in summary_text
+        assert "service_dropped_messages" in summary_text
+        assert "large_file_warnings" in summary_text
+        assert "max_file_size_bytes" in summary_text
     finally:
         logger.handlers[:] = original_handlers
         logger.propagate = original_propagate

@@ -185,16 +185,18 @@ def parse_arguments(argv: Sequence[str] | None = None) -> CLIOptions:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    mode = str(args.mode).lower()
+
     raw_extensions = _split_csv(args.extensions)
     extensions = _normalise_extensions(raw_extensions)
-    if args.mode == "inclusion" and not extensions:
+    if mode == "inclusion" and not extensions:
         extensions = tuple(COMMON_EXTENSIONS)
     exclude_files = _split_csv(args.exclude_files)
     exclude_folders = _split_csv(args.exclude_folders)
 
     return CLIOptions(
         folder_path=args.folder,
-        mode=args.mode,
+        mode=mode,
         include_hidden=args.include_hidden,
         extensions=extensions,
         exclude_files=exclude_files,
@@ -277,8 +279,17 @@ def run_cli(
     else:
         logger.setLevel(getattr(logging, options.log_level.upper(), logging.INFO))
 
+    mode_normalised = options.mode.lower()
+    if mode_normalised not in {"inclusion", "exclusion"}:
+        logger.warning(
+            "Unsupported mode '%s' provided; defaulting to inclusion", options.mode
+        )
+        mode_normalised = "inclusion"
+    if mode_normalised != options.mode:
+        options = replace(options, mode=mode_normalised)
+
     # Fix: Q-101 - guard manual invocations that omit extensions in inclusion mode.
-    if options.mode == "inclusion" and not options.extensions:
+    if mode_normalised == "inclusion" and not options.extensions:
         logger.debug(
             "No extensions provided for inclusion run; defaulting to COMMON_EXTENSIONS"
         )
@@ -343,46 +354,63 @@ def run_cli(
             service.cancel()
 
     # Fix: Q-108 - surface instrumentation metrics even if queue messages were dropped.
-    processor = getattr(service, "file_processor", None)
-    if processor is not None:
-        metrics: dict[str, float | int] | None = None
-        try:
-            metrics = getattr(processor, "last_run_metrics", None)
-            if callable(metrics):  # pragma: no cover - defensive branch
-                metrics = metrics()
-        except Exception as exc:  # pragma: no cover - defensive guard
-            logger.debug("Unable to access processor metrics: %s", exc)
-        else:
-            if metrics:
-                processed = metrics.get("processed_files", 0)
-                elapsed = float(metrics.get("elapsed_seconds", 0.0))
-                rate = float(metrics.get("files_per_second", 0.0))
-                queue_depth = metrics.get("max_queue_depth", 0)
-                total_files = metrics.get("total_files", processed)
-                dropped_messages = metrics.get("dropped_messages", 0)
-                skipped_files = metrics.get("skipped_files", 0)
-                # Fix: Q-108 - enrich CLI telemetry with completion timestamps and estimates.
-                completed_at = metrics.get("completed_at", "")
-                logger.info(
-                    (
-                        "Extraction metrics summary: processed=%s, total=%s, "
-                        "elapsed=%.2fs, rate=%.2f files/s, max_queue_depth=%s, "
-                        "dropped_messages=%s, skipped=%s, completed_at=%s"
-                    ),
-                    processed,
-                    total_files,
-                    elapsed,
-                    rate,
-                    queue_depth,
-                    dropped_messages,
-                    skipped_files,
-                    completed_at,
-                )
-                if not metrics.get("total_files_known", True):
-                    estimated_total = metrics.get("total_files_estimated", total_files)
-                    logger.info(
-                        "Total file count estimated from processed workload: %s", estimated_total
-                    )
+    metrics: dict[str, float | int | str] | None = None
+    try:
+        metrics_getter = getattr(service, "get_last_run_metrics", None)
+        if callable(metrics_getter):
+            metrics = metrics_getter()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.debug("Unable to access service metrics: %s", exc)
+
+    if metrics is None:
+        processor = getattr(service, "file_processor", None)
+        if processor is not None:
+            try:
+                metrics_candidate = getattr(processor, "last_run_metrics", None)
+                if callable(metrics_candidate):  # pragma: no cover - defensive branch
+                    metrics_candidate = metrics_candidate()
+                if isinstance(metrics_candidate, dict):
+                    metrics = dict(metrics_candidate)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.debug("Unable to access processor metrics: %s", exc)
+
+    if metrics:
+        processed = int(metrics.get("processed_files", 0))
+        elapsed = float(metrics.get("elapsed_seconds", 0.0))
+        rate = float(metrics.get("files_per_second", 0.0))
+        queue_depth = int(metrics.get("max_queue_depth", 0))
+        total_files = int(metrics.get("total_files", processed))
+        dropped_messages = int(metrics.get("dropped_messages", 0))
+        skipped_files = int(metrics.get("skipped_files", 0))
+        large_file_warnings = int(metrics.get("large_file_warnings", 0))
+        max_file_size_bytes = int(metrics.get("max_file_size_bytes", 0))
+        service_dropped = int(metrics.get("service_dropped_messages", 0))
+        service_state_dropped = int(
+            metrics.get("service_dropped_state_messages", 0)
+        )
+        completed_at = metrics.get("completed_at", "")
+
+        metrics_payload = {
+            "processed": processed,
+            "total": total_files,
+            "elapsed_seconds": round(elapsed, 3),
+            "files_per_second": round(rate, 3),
+            "max_queue_depth": queue_depth,
+            "dropped_messages": dropped_messages,
+            "service_dropped_messages": service_dropped,
+            "service_dropped_state_messages": service_state_dropped,
+            "skipped_files": skipped_files,
+            "large_file_warnings": large_file_warnings,
+            "max_file_size_bytes": max_file_size_bytes,
+            "completed_at": completed_at,
+        }
+        logger.info("Extraction metrics summary: %s", metrics_payload)
+
+        if not metrics.get("total_files_known", True):
+            estimated_total = int(metrics.get("total_files_estimated", total_files))
+            logger.info(
+                "Total file count estimated from processed workload: %s", estimated_total
+            )
 
     if options.report_path:
         try:

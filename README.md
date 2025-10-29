@@ -65,6 +65,8 @@ a curated set of common file types (`.txt`, `.md`, `.py`, and more), preventing
 silent zero-output runs.
 - `--mode` defaults to `inclusion`. When omitted, the CLI processes files with
   a curated set of common extensions (for example `.txt`, `.md`, `.py`).
+- The `--mode` flag is case-insensitive; values such as `INCLUSION` or
+  `Exclusion` are normalised to their lowercase equivalents before execution.
 - Extensions may be supplied with or without a leading dot. `--extensions txt md`
   is normalised to `(.txt, .md)` automatically.
 - Use `--extensions "*"` to process all file types in inclusion mode while still
@@ -81,9 +83,10 @@ silent zero-output runs.
   tune queue responsiveness and console verbosity.
 - Use `--report` to generate a JSON snapshot of the latest extraction summary on
   disk.
-- Each run logs throughput metrics (files processed, elapsed time, files per
-  second, queue saturation, dropped status messages, and skipped files) at the
-  end of the execution to aid monitoring.
+- Each run logs throughput and reliability metrics (files processed, elapsed
+  time, files per second, queue saturation, dropped status messages, service
+  queue drops, large file warnings, and skipped files) at the end of the
+  execution to aid monitoring.
 - <!-- Fix: Q-109 -->When directory enumeration falls back to an indeterminate
   mode (for very large trees), the CLI records a final progress update with the
   completed file count and logs a completion timestamp so automation can detect
