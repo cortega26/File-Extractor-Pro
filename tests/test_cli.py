@@ -114,7 +114,7 @@ def test_parse_arguments_normalises_values(tmp_path: Path) -> None:
 
     assert options.mode == "exclusion"
     assert options.include_hidden is True
-    assert options.extensions == ("txt", "md", "py")
+    assert options.extensions == (".txt", ".md", ".py")
     assert options.exclude_files == ("*.tmp", ".DS_Store")
     assert options.exclude_folders == ("__pycache__", "build")
     assert options.output_file.name == "output.txt"
@@ -135,7 +135,7 @@ def test_run_cli_success(caplog, tmp_path: Path) -> None:
         folder_path=tmp_path,
         mode="inclusion",
         include_hidden=False,
-        extensions=("txt",),
+        extensions=(".txt",),
         exclude_files=(),
         exclude_folders=(),
         output_file=tmp_path / "out.txt",

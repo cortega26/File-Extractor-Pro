@@ -8,6 +8,7 @@ import os
 from copy import deepcopy
 from datetime import datetime
 from queue import Empty, Full, Queue
+from time import perf_counter
 from typing import IO, Any, Callable, Dict, MutableMapping, Sequence, Set
 
 from constants import CHUNK_SIZE, SPECIFICATION_FILES
@@ -42,47 +43,61 @@ class FileProcessor:
         self._max_file_size_bytes = (
             max_file_size_mb * 1024 * 1024 if max_file_size_mb else None
         )
+        self._max_queue_depth: int = 0
+        self._last_run_metrics: Dict[str, float | int] = {}
 
+    def _record_queue_depth(self) -> None:
+        """Track the maximum observed queue depth for instrumentation."""
+
+        try:
+            current_depth = self.output_queue.qsize()
+        except NotImplementedError:
+            return
+        if current_depth > self._max_queue_depth:
+            self._max_queue_depth = current_depth
+
+    # Fix: Q-106
     def _enqueue_message(self, level: str, message: str) -> None:
         """Safely enqueue status messages without blocking the worker thread."""
 
+        drained: list[tuple[str, object]] = []
         try:
             self.output_queue.put_nowait((level, message))
+            self._record_queue_depth()
             return
         except Full:
-            pass
+            while True:
+                try:
+                    drained.append(self.output_queue.get_nowait())
+                except Empty:
+                    break
 
-        # Fix: audit/backlog/Q-106 - preserve terminal state updates on saturation.
-        preserved_states: list[tuple[str, object]] = []
-        evicted: tuple[str, object] | None = None
-        while evicted is None:
-            try:
-                candidate = self.output_queue.get_nowait()
-            except Empty:
+        drop_index: int | None = None
+        for index, candidate in enumerate(drained):
+            if candidate[0] != "state":
+                drop_index = index
                 break
-            if candidate[0] == "state":
-                preserved_states.append(candidate)
-                continue
-            evicted = candidate
-        if evicted is None and preserved_states:
-            evicted = preserved_states.pop(0)
+
+        if drop_index is None and drained:
+            drop_index = 0
             logger.warning(
-                "Status queue saturated with state updates; dropping oldest state"
+                "Status queue saturated with state updates only; discarding oldest state"
             )
-        for state_message in preserved_states:
+
+        if drop_index is not None:
+            drained.pop(drop_index)
+
+        for payload in drained:
             try:
-                self.output_queue.put_nowait(state_message)
+                self.output_queue.put_nowait(payload)
+                self._record_queue_depth()
             except Full:
-                logger.warning(
-                    "Failed to restore preserved state message after saturation"
-                )
-        if evicted is None:
-            logger.warning(
-                "Unable to evict message despite saturation; dropping new message"
-            )
-            return
+                logger.warning("Queue remained saturated while restoring messages")
+                return
+
         try:
             self.output_queue.put_nowait((level, message))
+            self._record_queue_depth()
         except Full:
             logger.warning(
                 "Dropping status message after repeated saturation: %s", message
@@ -215,6 +230,12 @@ class FileProcessor:
             logger.error("Error processing file %s: %s", file_path, exc)
             self._enqueue_message("error", f"Error processing {file_path}: {exc}")
 
+    @property
+    def last_run_metrics(self) -> Dict[str, float | int]:
+        """Return instrumentation metrics captured during the last extraction."""
+
+        return dict(self._last_run_metrics)
+
     def _update_extraction_summary(
         self, file_ext: str, file_path: str, file_size: int, file_hash: str
     ) -> None:
@@ -292,6 +313,11 @@ class FileProcessor:
     ) -> None:
         """Extract files with improved error handling and progress reporting."""
 
+        # Fix: Q-108 - initialise instrumentation for this run.
+        self._max_queue_depth = self.output_queue.qsize()
+        self._last_run_metrics = {}
+        start_time = perf_counter()
+
         processed_count = 0
         total_files = 0
         seen_paths: Set[str] = set()
@@ -337,6 +363,9 @@ class FileProcessor:
                         )
                     ]
 
+                    # Fix: Q-102 - determine eligible files before processing to
+                    # emit progress against a stable total.
+                    eligible_paths: list[str] = []
                     for file in files:
                         if is_cancelled and is_cancelled():
                             raise ExtractionCancelled(
@@ -360,8 +389,12 @@ class FileProcessor:
                             continue
 
                         seen_paths.add(file_path)
-                        total_files += 1
+                        eligible_paths.append(file_path)
 
+                    if eligible_paths:
+                        total_files += len(eligible_paths)
+
+                    for file_path in eligible_paths:
                         self.process_file(
                             file_path,
                             output,
@@ -385,6 +418,39 @@ class FileProcessor:
             logger.error(error_msg)
             self._enqueue_message("error", error_msg)
             raise
+        else:
+            elapsed = perf_counter() - start_time
+            files_per_second = (
+                processed_count / elapsed if elapsed > 0 else 0.0
+            )
+            self._last_run_metrics = {
+                "processed_files": processed_count,
+                "elapsed_seconds": elapsed,
+                "files_per_second": files_per_second,
+                "max_queue_depth": self._max_queue_depth,
+                "total_files": total_files,
+            }
+
+            logger.info(
+                (
+                    "Extraction metrics - processed: %s, elapsed: %.2fs, "
+                    "rate: %.2f files/s, max queue depth: %s"
+                ),
+                processed_count,
+                elapsed,
+                files_per_second,
+                self._max_queue_depth,
+            )
+
+            self._enqueue_message(
+                "info",
+                (
+                    "Extraction metrics: "
+                    f"processed={processed_count}, elapsed={elapsed:.2f}s, "
+                    f"rate={files_per_second:.2f} files/s, "
+                    f"max_queue_depth={self._max_queue_depth}"
+                ),
+            )
 
 
 __all__ = ["ExtractionCancelled", "FileProcessor"]
