@@ -174,6 +174,13 @@ class ThemeManager:
             foreground=palette.banner_error_text,
             padding=(8, 4),
         )
+        style.configure(
+            "Banner.Detail.TLabel",
+            background=palette.banner_info_bg,
+            foreground=palette.banner_info_text,
+            padding=(8, 0),
+            font=("TkDefaultFont", 9),
+        )
 
         style.configure(
             "Main.TCheckbutton",

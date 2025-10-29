@@ -7,15 +7,19 @@ import tkinter as tk
 from dataclasses import dataclass
 from queue import Empty
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import TYPE_CHECKING, Callable, Dict, List
+from typing import TYPE_CHECKING, Callable, Dict, List, Mapping
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from ui_support import KeyboardManager as KeyboardManagerType
+    from ui_support import QueueDispatcher as QueueDispatcherType
+    from ui_support import ShortcutHintManager as ShortcutHintManagerType
     from ui_support import StatusBanner as StatusBannerType
     from ui_support import ThemeManager as ThemeManagerType
     from ui_support import ThemeTargets as ThemeTargetsType
 else:
     KeyboardManagerType = object  # type: ignore[assignment]
+    QueueDispatcherType = object  # type: ignore[assignment]
+    ShortcutHintManagerType = object  # type: ignore[assignment]
     StatusBannerType = object  # type: ignore[assignment]
     ThemeManagerType = object  # type: ignore[assignment]
     ThemeTargetsType = object  # type: ignore[assignment]
@@ -31,6 +35,8 @@ StatusBanner: type | None = None
 ThemeManager: type | None = None
 ThemeTargets: type | None = None
 KeyboardManager: type | None = None
+QueueDispatcher: type | None = None
+ShortcutHintManager: type | None = None
 
 STATUS_QUEUE_MAX_SIZE = 256
 QUEUE_IDLE_POLL_MS = 80
@@ -107,6 +113,8 @@ class FileExtractorGUI:
             global StatusBanner, ThemeManager, ThemeTargets, KeyboardManager
             from ui_support import (
                 KeyboardManager as _KeyboardManager,
+                QueueDispatcher as _QueueDispatcher,
+                ShortcutHintManager as _ShortcutHintManager,
                 StatusBanner as _StatusBanner,
                 ThemeManager as _ThemeManager,
                 ThemeTargets as _ThemeTargets,
@@ -116,6 +124,8 @@ class FileExtractorGUI:
             ThemeManager = _ThemeManager
             ThemeTargets = _ThemeTargets
             KeyboardManager = _KeyboardManager
+            QueueDispatcher = _QueueDispatcher
+            ShortcutHintManager = _ShortcutHintManager
             self.config = Config()
             self.keyboard_manager: KeyboardManagerType = KeyboardManager(self.master)
             self.setup_variables()
@@ -137,6 +147,8 @@ class FileExtractorGUI:
 
             self.extraction_in_progress = False
             self._pending_status_message: str | None = None
+            self._pending_status_detail: str | None = None
+            self._pending_status_severity: str = "info"
             self._progress_animation_running = False
             self._last_progress_value: float = 0.0
 
@@ -151,6 +163,11 @@ class FileExtractorGUI:
                 file_processor_factory=_build_processor,
             )
             self.output_queue = self.service.output_queue
+            self.queue_dispatcher: QueueDispatcherType = QueueDispatcher(
+                transcript=self.output_text,
+                banner_callback=self._display_banner_message,
+                state_callback=self._handle_service_state,
+            )
 
             initial_theme = self.config.get("theme", "light")
             self.apply_theme(initial_theme)
@@ -314,7 +331,11 @@ class FileExtractorGUI:
         self.setup_output_area(start_row=10)
         self.setup_menu_bar()
         self.setup_status_bar()
+        self.shortcut_hint_manager: ShortcutHintManagerType = ShortcutHintManager(
+            self.status_var
+        )
         self._register_keyboard_shortcuts()
+        self._register_shortcut_hints()
         self._configure_focus_management()
 
         self._arrange_extension_checkbuttons(columns=4)
@@ -322,6 +343,29 @@ class FileExtractorGUI:
 
         # Fix: Q-102 - ensure the progress bar starts in determinate mode.
         self.progress_bar.configure(mode="determinate")
+
+    # Fix: ux_accessibility_keyboard_hints
+    def _register_shortcut_hints(self) -> None:
+        """Announce keyboard shortcuts when buttons gain focus or hover."""
+
+        default_message = self.status_var.get() or "Ready"
+        self.shortcut_hint_manager.set_default_message(default_message)
+        self.shortcut_hint_manager.register_hints(
+            (
+                (
+                    self.extract_button,
+                    "Alt+E — start extraction",
+                ),
+                (
+                    self.cancel_button,
+                    "Alt+C — cancel the current extraction",
+                ),
+                (
+                    self.generate_report_button,
+                    "Alt+G — generate the latest extraction report",
+                ),
+            )
+        )
 
     # Fix: ux_accessibility_status_banner
     def setup_output_area(self, *, start_row: int) -> None:
@@ -811,28 +855,13 @@ class FileExtractorGUI:
             while True:
                 message_type, message = self.output_queue.get_nowait()
                 drained_any = True
-                if message_type == "info":
-                    self.output_text.insert(tk.END, message + "\n", "info")
-                    self._display_banner_message("info", message)
-                elif message_type == "error":
-                    self.output_text.insert(tk.END, "ERROR: " + message + "\n", "error")
-                    logger.error(message)
-                    self._display_banner_message("error", message)
-                elif message_type == "warning":
-                    warning_text = str(message)
-                    self.output_text.insert(
-                        tk.END, "WARNING: " + warning_text + "\n", "info"
-                    )
-                    logger.warning(warning_text)
-                    self._display_banner_message("warning", warning_text)
-                elif message_type == "state":
-                    self._handle_service_state(message)
-                    continue
-                else:
-                    logger.debug("Received unknown message type: %s", message_type)
-
-                self.output_text.see(tk.END)
-                self.output_text.update_idletasks()
+                dispatch_result = self.queue_dispatcher.dispatch(
+                    message_type,
+                    message,
+                )
+                if dispatch_result.wrote_to_transcript:
+                    self.output_text.see(tk.END)
+                    self.output_text.update_idletasks()
 
         except Empty:
             pass
@@ -858,9 +887,15 @@ class FileExtractorGUI:
         self.extraction_in_progress = False
         metrics = payload.get("metrics")
         processed_files = skipped_files = None
-        if isinstance(metrics, dict):
+        metrics_detail: str | None = None
+        if isinstance(metrics, dict) and metrics:
             processed_files = int(metrics.get("processed_files", 0))
             skipped_files = int(metrics.get("skipped_files", 0))
+            metrics_detail = self._format_metrics_detail(metrics)
+            self._append_metrics_summary(metrics_detail)
+
+        severity = "info"
+        detail: str | None = None
 
         if result == "success":
             if processed_files == 0 and skipped_files == 0 and metrics:
@@ -869,7 +904,15 @@ class FileExtractorGUI:
                     "Extraction complete — no files matched the current filters. "
                     "Adjust the extension list or enable hidden files."
                 )
-                self.status_banner.show_warning(self._pending_status_message)
+                severity = "warning"
+                detail = (
+                    "Try broadening the extension list or enabling hidden files "
+                    "from the sidebar before retrying."
+                )
+                self.status_banner.show_warning(
+                    self._pending_status_message,
+                    detail=detail,
+                )
             elif metrics:
                 skipped_note = (
                     f", skipped {skipped_files}"
@@ -879,20 +922,47 @@ class FileExtractorGUI:
                 self._pending_status_message = (
                     f"Extraction complete — processed {processed_files}{skipped_note}"
                 )
-                self.status_banner.show_success(self._pending_status_message)
+                severity = "success"
+                detail = metrics_detail
+                self.status_banner.show_success(
+                    self._pending_status_message,
+                    detail=detail,
+                )
             else:
                 self._pending_status_message = "Extraction complete"
-                self.status_banner.show_success(self._pending_status_message)
+                severity = "success"
+                detail = f"Results saved to {self.output_file_name.get()}"
+                self.status_banner.show_success(
+                    self._pending_status_message,
+                    detail=detail,
+                )
         elif result == "error":
             error_message = payload.get("message", "Extraction failed")
             self._pending_status_message = (
                 f"Extraction failed: {error_message}. "
                 "Review the log output for troubleshooting details."
             )
-            self.status_banner.show_error(self._pending_status_message)
+            severity = "error"
+            detail = (
+                "Check the transcript below for the full stack trace and consult "
+                "the troubleshooting section of the user guide."
+            )
+            self.status_banner.show_error(
+                self._pending_status_message,
+                detail=detail,
+            )
         else:
             self._pending_status_message = "Extraction finished"
-            self.status_banner.show(self._pending_status_message, severity="info")
+            severity = "info"
+            detail = metrics_detail
+            self.status_banner.show(
+                self._pending_status_message,
+                severity="info",
+                detail=detail,
+            )
+
+        self._pending_status_detail = detail
+        self._pending_status_severity = severity
 
         try:
             self.extract_button.config(state="normal")
@@ -908,13 +978,61 @@ class FileExtractorGUI:
             return
 
         if level == "error":
-            self.status_banner.show_error(message)
+            self.status_banner.show_error(
+                message,
+                detail="Review the transcript for additional stack traces.",
+            )
         elif level == "warning":
             self.status_banner.show_warning(message)
         elif level == "info":
             lowered = message.lower()
             if "extraction" in lowered or "report" in lowered:
                 self.status_banner.show(message, severity="info")
+
+    # Fix: Q-108
+    def _format_metrics_detail(self, metrics: Mapping[str, float | int]) -> str:
+        """Create a user-facing summary of extraction instrumentation metrics."""
+
+        processed = int(metrics.get("processed_files", 0))
+        total_known = bool(metrics.get("total_files_known", True))
+        total_estimated = int(metrics.get("total_files_estimated", processed))
+        total = int(metrics.get("total_files", total_estimated))
+        elapsed = float(metrics.get("elapsed_seconds", 0.0))
+        rate = float(metrics.get("files_per_second", 0.0))
+        queue_depth = int(metrics.get("max_queue_depth", 0))
+        dropped = int(metrics.get("dropped_messages", 0))
+        skipped = int(metrics.get("skipped_files", 0))
+
+        total_descriptor = (
+            str(total) if total_known else f"≈{total_estimated} (estimated)"
+        )
+        elapsed_descriptor = f"{elapsed:.2f}s" if elapsed else "<0.01s"
+        rate_descriptor = f"{rate:.2f} files/s" if rate else "<0.01 files/s"
+
+        return (
+            "Run summary: processed {processed} of {total} files in {elapsed}. "
+            "Throughput {rate}; skipped {skipped}; max queue depth {depth}; "
+            "dropped messages {dropped}."
+        ).format(
+            processed=processed,
+            total=total_descriptor,
+            elapsed=elapsed_descriptor,
+            rate=rate_descriptor,
+            skipped=skipped,
+            depth=queue_depth,
+            dropped=dropped,
+        )
+
+    # Fix: Q-108
+    def _append_metrics_summary(self, summary: str) -> None:
+        """Append the metrics summary to the transcript if the widget is available."""
+
+        try:
+            self.output_text.insert(tk.END, summary + "\n", "info")
+            self.output_text.see(tk.END)
+            self.output_text.update_idletasks()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.debug("Unable to append metrics summary to transcript: %s", exc)
 
     def generate_report(self) -> None:
         """Generate extraction report with improved formatting and error handling."""
@@ -1009,8 +1127,22 @@ class FileExtractorGUI:
         except Exception:  # pragma: no cover - defensive guard
             logger.debug("Unable to restore focus to extract button", exc_info=True)
         status_message = self._pending_status_message or "Ready"
+        status_detail = getattr(self, "_pending_status_detail", None)
+        status_severity = getattr(self, "_pending_status_severity", "info")
         self._pending_status_message = None
+        self._pending_status_detail = None
+        self._pending_status_severity = "info"
         self.status_var.set(status_message)
+        self.status_banner.show(
+            status_message,
+            severity=status_severity,
+            detail=status_detail,
+        )
+        if hasattr(self, "shortcut_hint_manager"):
+            try:
+                self.shortcut_hint_manager.set_default_message(status_message)
+            except Exception:  # pragma: no cover - defensive guard
+                logger.debug("Unable to refresh shortcut hint default message", exc_info=True)
         self.progress_var.set(0)
         self._last_progress_value = 0.0
         self._ensure_progress_determinate()
@@ -1020,10 +1152,15 @@ class FileExtractorGUI:
 
         if self.extraction_in_progress:
             self._pending_status_message = "Extraction cancelled"
+            self._pending_status_detail = "No additional files were processed."
+            self._pending_status_severity = "warning"
             self.extraction_in_progress = False
             self.service.cancel()
             self.reset_extraction_state()
-            self.status_banner.show_warning("Extraction cancelled by user")
+            self.status_banner.show_warning(
+                "Extraction cancelled by user",
+                detail="You can adjust the filters and start a new run at any time.",
+            )
 
     def on_closing(self) -> None:
         """Handle application closing with proper cleanup."""

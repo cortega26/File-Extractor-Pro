@@ -38,26 +38,63 @@ class DummyVar:
         return self.value
 
 
+class DummyText:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def insert(self, _index: object, message: str, _tag: object | None = None) -> None:
+        self.lines.append(message)
+
+    def see(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def update_idletasks(self) -> None:
+        return None
+
+
+class _DummyDispatchResult:
+    def __init__(self, wrote: bool) -> None:
+        self.wrote_to_transcript = wrote
+
+
+class _QueueDispatcherStub:
+    def __init__(self, should_write: bool = False) -> None:
+        self.records: list[tuple[str, object]] = []
+        self._should_write = should_write
+
+    def dispatch(self, level: str, payload: object) -> _DummyDispatchResult:
+        self.records.append((level, payload))
+        return _DummyDispatchResult(self._should_write)
+
+
 class _StatusBannerStub:
     """Record status banner messages for assertions."""
 
     def __init__(self) -> None:
         self.messages: dict[str, str] = {}
+        self.details: dict[str, str | None] = {}
 
-    def show_success(self, message: str) -> None:
+    def show_success(self, message: str, *, detail: str | None = None) -> None:
         self.messages["success"] = message
+        self.details["success"] = detail
 
-    def show_error(self, message: str) -> None:
+    def show_error(self, message: str, *, detail: str | None = None) -> None:
         self.messages["error"] = message
+        self.details["error"] = detail
 
-    def show_warning(self, message: str) -> None:
+    def show_warning(self, message: str, *, detail: str | None = None) -> None:
         self.messages["warning"] = message
+        self.details["warning"] = detail
 
-    def show(self, message: str, *, severity: str = "info") -> None:
+    def show(
+        self, message: str, *, severity: str = "info", detail: str | None = None
+    ) -> None:
         self.messages[severity] = message
+        self.details[severity] = detail
 
     def clear(self) -> None:
         self.messages.clear()
+        self.details.clear()
 
     def apply_palette(self, _palette: Any) -> None:
         return None
@@ -81,7 +118,16 @@ def _make_gui_stub() -> FileExtractorGUI:
     gui._progress_animation_running = False  # type: ignore[attr-defined]
     gui._last_progress_value = 0.0  # type: ignore[attr-defined]
     gui._pending_status_message = None  # type: ignore[attr-defined]
+    gui._pending_status_detail = None  # type: ignore[attr-defined]
+    gui._pending_status_severity = "info"  # type: ignore[attr-defined]
     gui.service = SimpleNamespace(cancel=lambda: None)
+    gui.output_text = cast(Any, DummyText())
+    gui.queue_dispatcher = _QueueDispatcherStub()
+    gui.shortcut_hint_manager = SimpleNamespace(
+        set_default_message=lambda *_args, **_kwargs: None,
+        register_hints=lambda *_args, **_kwargs: None,
+    )
+    gui.output_file_name = cast(Any, DummyVar("extraction.txt"))
     return gui
 
 
@@ -146,6 +192,36 @@ def test_handle_service_state_success_with_no_matches_prompts_user() -> None:
     assert gui.status_banner.messages["warning"] == message  # type: ignore[attr-defined]
     FileExtractorGUI.reset_extraction_state(gui)
     assert "no files matched" in gui.status_var.get().lower()
+
+
+# Fix: Q-108
+def test_handle_service_state_with_metrics_records_summary() -> None:
+    gui = _make_gui_stub()
+
+    FileExtractorGUI._handle_service_state(
+        gui,
+        {
+            "status": "finished",
+            "result": "success",
+            "metrics": {
+                "processed_files": 5,
+                "total_files": 5,
+                "elapsed_seconds": 1.5,
+                "files_per_second": 3.3,
+                "max_queue_depth": 4,
+                "dropped_messages": 0,
+                "skipped_files": 1,
+            },
+        },
+    )
+
+    detail = gui.status_banner.details["success"]  # type: ignore[attr-defined]
+    assert detail is not None
+    assert "Run summary" in detail
+    assert gui.output_text.lines  # type: ignore[attr-defined]
+    assert gui.output_text.lines[-1].startswith("Run summary")  # type: ignore[attr-defined]
+    assert gui._pending_status_detail == detail  # type: ignore[attr-defined]
+    assert gui._pending_status_severity == "success"  # type: ignore[attr-defined]
 
 
 # Fix: Q-107
