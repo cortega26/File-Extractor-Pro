@@ -21,33 +21,72 @@ class ExtractionCancelled(RuntimeError):
 class FileProcessor:
     """Enhanced file processor with improved error handling and performance."""
 
-    def __init__(self, output_queue: Queue):
+    def __init__(
+        self,
+        output_queue: Queue,
+        *,
+        max_file_size_mb: int | None = None,
+    ) -> None:
+        """Initialise the processor with optional safeguards.
+
+        Args:
+            output_queue: Queue used to communicate status updates.
+            max_file_size_mb: Optional soft cap for file sizes. ``None``
+                disables the cap and relies on streaming reads.
+        """
+
         self.output_queue = output_queue
         self.extraction_summary: Dict[str, Any] = {}
         self.processed_files: Set[str] = set()
         self._cache: Dict[str, Any] = {}
+        self._max_file_size_bytes = (
+            max_file_size_mb * 1024 * 1024 if max_file_size_mb else None
+        )
 
     def _enqueue_message(self, level: str, message: str) -> None:
         """Safely enqueue status messages without blocking the worker thread."""
 
         try:
             self.output_queue.put_nowait((level, message))
+            return
         except Full:
-            try:
-                self.output_queue.get_nowait()
-            except Empty:
-                logger.warning(
-                    "Status queue saturated and could not free space for message: %s",
-                    message,
-                )
-                return
+            pass
 
+        # Fix: audit/backlog/Q-106 - preserve terminal state updates on saturation.
+        preserved_states: list[tuple[str, object]] = []
+        evicted: tuple[str, object] | None = None
+        while evicted is None:
             try:
-                self.output_queue.put_nowait((level, message))
+                candidate = self.output_queue.get_nowait()
+            except Empty:
+                break
+            if candidate[0] == "state":
+                preserved_states.append(candidate)
+                continue
+            evicted = candidate
+        if evicted is None and preserved_states:
+            evicted = preserved_states.pop(0)
+            logger.warning(
+                "Status queue saturated with state updates; dropping oldest state"
+            )
+        for state_message in preserved_states:
+            try:
+                self.output_queue.put_nowait(state_message)
             except Full:
                 logger.warning(
-                    "Dropping status message after backpressure attempt: %s", message
+                    "Failed to restore preserved state message after saturation"
                 )
+        if evicted is None:
+            logger.warning(
+                "Unable to evict message despite saturation; dropping new message"
+            )
+            return
+        try:
+            self.output_queue.put_nowait((level, message))
+        except Full:
+            logger.warning(
+                "Dropping status message after repeated saturation: %s", message
+            )
 
     def process_specifications(
         self,
@@ -96,8 +135,23 @@ class FileProcessor:
                 raise PermissionError(f"Permission denied: {file_path}")
 
             file_size = os.path.getsize(file_path)
-            if file_size > 100 * 1024 * 1024:
-                raise MemoryError(f"File too large to process: {file_path}")
+            if (
+                self._max_file_size_bytes is not None
+                and file_size > self._max_file_size_bytes
+            ):
+                logger.warning(
+                    "File %s exceeds configured max size (%s MB); continuing via streaming",
+                    file_path,
+                    int(self._max_file_size_bytes / (1024 * 1024)),
+                )
+                self._enqueue_message(
+                    "warning",
+                    (
+                        "Processing large file beyond configured threshold: "
+                        f"{file_path}"
+                    ),
+                )
+            # Fix: audit/backlog/Q-105 - rely on streaming reads instead of a hard cap.
 
             normalized_path = os.path.normpath(file_path).replace(os.path.sep, "/")
 
