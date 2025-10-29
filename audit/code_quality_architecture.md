@@ -1,45 +1,69 @@
-# Code Quality & Architecture Report
-
 ## Overview
-File Extractor Pro is currently implemented as a single Tkinter desktop application. All GUI wiring, configuration, and asynchronous file traversal live inside `file_extractor.py`, which now spans more than 800 lines and mixes UI logic, filesystem I/O, and concurrency primitives. The code base lacks automated tests and modular boundaries, which raises maintenance and scalability concerns for future iterations (e.g., adding CLIs or headless processing).
+File Extractor Pro now splits responsibilities across dedicated modules:
+`processor.py` owns filesystem traversal, `services/` provides orchestration
+primitives for the GUI and CLI, and `ui.py` drives the Tkinter surface. The
+separation is a marked improvement over the prior monolith, yet several
+architectural gaps remain. In particular, the headless contract is inconsistent
+with the processor’s filtering rules, the GUI module has grown into a
+nearly-1 000 line façade, and static analysis is not enforceable because type
+information is missing across core modules and tests.
 
 ## Findings
 
-### S1 — Monolithic module coupling GUI, config, and I/O
-- **Evidence**: `file_extractor.py` defines configuration helpers (`Config`), async extraction (`FileProcessor`), and Tk UI (`FileExtractorGUI`) in one file, with the GUI directly instantiating and controlling asynchronous extraction threads.【F:file_extractor.py†L48-L828】
-- **Impact**: Hard to reason about or unit-test individual concerns; any change to extraction requires touching GUI code. Scaling to alternative front-ends or a service workflow would require major rewrites. Bugs in one area (e.g., async) can crash the GUI.
-- **Recommendation**: Split into packages: `config.py`, `processors/async_extractor.py`, `ui/main_window.py`. Define explicit interfaces for the processor and use dependency injection so GUI and batch modes share logic. Add unit tests around the processor module once isolated.
+### S1 — CLI defaults filter out every file
+- **Evidence**: The argument parser keeps inclusion mode as the default while
+  leaving `--extensions` empty, so `_split_csv` returns `()` and
+  `FileProcessor.extract_files` rejects every candidate file.【F:services/cli.py†L82-L168】【F:processor.py†L298-L319】
+- **Impact**: Running `python -m services.cli <folder>` exits successfully but
+  produces no output, breaking the core extraction flow for automation owners.
+- **Recommendation**: Expand an empty extensions tuple to a sensible default
+  (`COMMON_EXTENSIONS`) or treat it as a wildcard. Add integration coverage to
+  lock the contract.
 
-### S1 — Async event loop misuse with Tkinter thread
-- **Evidence**: `run_extraction_thread` spins up `asyncio.new_event_loop()` inside a worker thread and calls `loop.run_until_complete`, while `update_progress` schedules Tk updates back on the main thread.【F:file_extractor.py†L604-L655】 Tkinter is not designed to cooperate with asyncio without integrating the loop; cancellation and shutdown rely on thread-level flags only.
-- **Impact**: Risk of deadlocks or crashes when cancelling extractions; Windows event loop policy may reject nested loops. Hard to extend for multiple concurrent tasks or progress callbacks. Observed that `self.loop` is stored but never awaited for cancellation.
-- **Recommendation**: Replace with `asyncio`-aware orchestration (e.g., `asyncio.run` in background worker with thread-safe queues) or drop asyncio in favor of thread pool + synchronous file reads. Provide explicit cancellation hooks that close the loop gracefully.
+### S1 — GUI module remains a monolith
+- **Evidence**: `ui.py` spans 972 lines and the `FileExtractorGUI` class still
+  handles layout, state management, theming, and service orchestration directly.【F:ui.py†L78-L653】【b0562d†L1-L1】
+- **Impact**: Adding features or accessibility hooks forces contributors to
+  touch the same giant class, increasing review risk and making unit testing
+  difficult.
+- **Recommendation**: Introduce presenter/controller layers (e.g., extract
+  theme manager, queue consumer, and form builders into separate modules) and
+  cover them with focused tests.
 
-### S2 — Duplicate directory walks and unbounded queue writes
-- **Evidence**: `extract_files` performs two full `os.walk` passes: first to count eligible files, second to process them, repeating filtering logic and doubling filesystem I/O.【F:file_extractor.py†L214-L313】 Messages are enqueued via `self.output_queue.put` without bounded size, risking memory growth on large runs.【F:file_extractor.py†L122-L184】【F:file_extractor.py†L630-L667】
-- **Impact**: On large trees, runtime roughly doubles. The GUI thread may lag if the queue floods faster than `check_queue` drains.
-- **Recommendation**: Collapse into a single traversal that counts and processes in one pass while tracking totals. Consider `queue.SimpleQueue` or bounding queue size with backpressure.
+### S1 — Type checking cannot gate CI
+- **Evidence**: `mypy --strict .` fails with 62 errors across services, UI, and
+  tests, citing missing annotations and protocol mismatches.【416f23†L1-L65】
+- **Impact**: Without type coverage the team cannot rely on static analysis to
+  catch regressions (e.g., signature changes in `ExtractorService`).
+- **Recommendation**: Layer in type hints, supply Tk stubs, and configure mypy
+  strictness tiers so CI can enforce R3 requirements.
 
-### S2 — Configuration persistence lacks schema validation
-- **Evidence**: `Config.set` writes arbitrary values as strings without validation; `set_defaults` stores comma-separated lists, but `get` doesn’t coerce types, so booleans like `include_hidden` depend on `.lower() == 'true'` callers.【F:file_extractor.py†L66-L149】【F:file_extractor.py†L357-L417】
-- **Impact**: Invalid values in `config.ini` can silently propagate (e.g., `mode=foobar`), causing runtime errors later. Hard to introduce new settings safely.
-- **Recommendation**: Introduce a schema (pydantic/dataclasses) with validation and typed getters; store structured lists in JSON fields to avoid fragile CSV parsing.
+### S2 — Queue backpressure can drop terminal state updates
+- **Evidence**: `_enqueue_message` evicts an arbitrary message whenever the
+  bounded queue is full, then retries once before dropping the new payload.【F:processor.py†L24-L50】
+- **Impact**: During noisy runs the terminal `("state", {"result": …})`
+  message can be discarded, leaving the UI/CLI without a completion signal.
+- **Recommendation**: Prioritise state events by draining batches before
+  enqueueing, or split state and log channels so completion messages are never
+  evicted.
 
-### S2 — Lack of error domain separation and retry strategy
-- **Evidence**: Errors in `process_file` surface to the GUI via queue messages, but operations like `aiofiles.open` and `os.walk` exceptions bubble into a single generic `"Error during extraction"` handler.【F:file_extractor.py†L122-L313】
-- **Impact**: Users cannot distinguish between transient permission errors and fatal crashes. No retries for transient I/O, no partial failure reporting for long runs.
-- **Recommendation**: Introduce domain-specific exceptions (`FileTooLarge`, `PermissionDenied`). Log structured error events and surface actionable messages, optionally with a retry/resume workflow.
-
-### S3 — Logging handler instantiated at import time
-- **Evidence**: Rotating file handler configured globally when module imports.【F:file_extractor.py†L38-L55】
-- **Impact**: Importing the module in tests or alternate front-ends always mutates logging, breaking embedding scenarios. Hard to adjust log path per environment.
-- **Recommendation**: Move logging setup into `main()` or a dedicated `configure_logging()` function guarded by `if __name__ == "__main__"` and allow dependency injection.
+### S2 — Large-file safeguard blocks valid workloads
+- **Evidence**: `process_file` raises `MemoryError` for files over 100 MB even
+  though content is streamed chunk-by-chunk.【F:processor.py†L83-L139】
+- **Impact**: Repositories with sizable text assets (logs, SQL dumps) cannot be
+  processed despite available disk/memory.
+- **Recommendation**: Replace the hard-coded cap with a configurable guard or
+  remove it entirely in favour of streamed writes plus documentation.
 
 ## Opportunities
-- Introduce a thin service layer that orchestrates extraction requests, enabling CLI/daemon reuse.
-- Create DTOs for extraction reports to enforce schema compatibility.
-- Add metrics instrumentation (timings, counts) to support performance tuning.
+- Formalise service interfaces (e.g., a thin domain layer) so new front-ends
+  reuse orchestration logic without importing Tk modules.
+- Capture extraction summaries through typed DTOs to stabilise report schemas.
+- Adopt dependency inversion for logging so tests can inject structured sinks
+  without mutating global handlers.
 
 ## Open Questions
-- **Missing**: Architecture decision records or roadmap—needed to prioritize refactors.
-- **Missing**: Clarification whether headless/batch mode is a requirement; influences modularization approach.
+- **Missing**: Target CLI use cases—should headless runs default to broad
+  filters or mirror the GUI defaults?
+- **Missing**: Acceptance criteria for large file support (max size, binary vs
+  text) to inform guardrail configuration.

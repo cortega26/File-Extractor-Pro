@@ -8,37 +8,40 @@ can quickly see what has been addressed and what remains.
 - **Next Action** — concrete step to move the item forward.
 
 ## Must Have (Severity S0–S1)
-- **Q-001 (S0 · Testing)** — Status: *In Progress*
-  - Notes: Pytest suite now exercises queue backpressure semantics to prevent saturation regressions.
-  - Next Action: Add CLI-driven regression harness that drains real queues during smoke tests.
-- **Q-002 (S1 · Architecture)** — Status: *In Progress*
-  - Notes: `ExtractorService` accepts a typed `ExtractionRequest`, easing orchestration reuse across UI and CLI surfaces.
-  - Next Action: Update architecture documentation and migrate remaining callers to the request workflow.
-- **Q-003 (S1 · Performance/Concurrency)** — Status: *Done*
-  - Notes: Extraction now runs synchronously with a cancellation event, avoiding Tkinter event loop coupling.
-  - Next Action: Monitor cancellation responsiveness under heavy filesystem loads.
-- **Q-004 (S1 · UX/UI)** — Status: *Done*
-  - Notes: Responsive layout profiles adapt widget grids for compact screens and high-DPI scaling.
-  - Next Action: Validate the refreshed layout against accessibility heuristics and gather user feedback.
-- **Q-005 (S1 · Performance)** — Status: *Done*
-  - Notes: Traversal now streams matching files and processes them in a single `os.walk` pass.
-  - Next Action: Monitor progress reporting accuracy on very large directory trees.
+- **Q-101 (S1 · CLI)** — Status: *Not Started*
+  - Notes: Headless workflow defaults to an empty extension list, so no files are processed unless the operator opts in manually.
+  - Next Action: Update CLI parsing to expand missing extensions to `COMMON_EXTENSIONS` (or wildcard) and add regression coverage.
+- **Q-102 (S1 · UX/Feedback)** — Status: *Not Started*
+  - Notes: Progress denominator increases with each processed file, forcing the progress bar to show 100% almost immediately.
+  - Next Action: Provide an upfront count (dry run/estimation) and switch to determinate progress only when the total is known.
+- **Q-103 (S1 · Maintainability)** — Status: *Not Started*
+  - Notes: `ui.py` remains a ~1k-line monolith blending layout, state, theming, and service calls.
+  - Next Action: Extract presenter/controller modules and introduce widget factories with targeted unit tests.
+- **Q-104 (S1 · Tooling)** — Status: *Not Started*
+  - Notes: `mypy --strict .` reports 62 failures across services, UI, and tests.
+  - Next Action: Add missing annotations/stubs and configure strictness tiers so type checking can gate CI.
 
 ## Should Have (Severity S2)
-- **Q-006 (S2 · Maintainability)** — Status: *Done*
-  - Notes: Bulk updates now flow through `Config.update_settings`, ensuring atomic validation and persistence via the typed schema.
-  - Next Action: Monitor telemetry for unexpected configuration validation failures.
-- **Q-007 (S2 · Performance)** — Status: *Not Started*
-  - Notes: Large files buffered fully before streaming to output file.
-  - Next Action: Implement chunked write-through to avoid memory spikes.
-- **Q-008 (S2 · UX/Performance)** — Status: *Done*
-  - Notes: Status queue now bounded with adaptive polling to keep the UI responsive under sustained load.
-  - Next Action: Monitor queue saturation metrics during stress runs.
+- **Q-105 (S2 · Performance)** — Status: *Not Started*
+  - Notes: Files over 100 MB raise `MemoryError`, leaving large assets unprocessed.
+  - Next Action: Replace the static cap with a streamed guard tied to configuration/available memory.
+- **Q-106 (S2 · Concurrency)** — Status: *Not Started*
+  - Notes: Queue backpressure evicts arbitrary messages, risking dropped terminal state updates.
+  - Next Action: Introduce batch draining or separate channels for state vs. log messages.
+- **Q-107 (S2 · Accessibility)** — Status: *Not Started*
+  - Notes: No mnemonics or shortcut hints exist; tab order follows raw widget creation.
+  - Next Action: Define Alt-based accelerators and document keyboard workflows within the UI.
+- **Q-108 (S2 · Observability)** — Status: *Not Started*
+  - Notes: No instrumentation for throughput, elapsed time, or queue saturation.
+  - Next Action: Emit structured run summaries (logs/metrics) after each extraction.
 
 ## Nice to Have (Severity S3)
-- **Q-009 (S3 · Maintainability)** — Status: *Done*
-  - Notes: Logging configuration is now opt-in and supports dependency injection for custom consumers.
-  - Next Action: Monitor usage patterns from non-GUI consumers to ensure handler expectations remain consistent.
+- **Q-109 (S3 · Documentation)** — Status: *Not Started*
+  - Notes: README lacks CLI usage guidance, so operators miss the need for `--extensions`.
+  - Next Action: Add CLI section detailing defaults, required flags, and examples.
+- **Q-110 (S3 · Testing)** — Status: *Not Started*
+  - Notes: Coverage tooling/thresholds are absent despite R3 requirements.
+  - Next Action: Wire `pytest-cov` (or coverage.py) into CI with ≥80% overall, ≥90% for changed modules.
 
 ## Recently Completed
-- **Q-001** — Added regression coverage for cancellation queue messaging and reset behaviour.
+- _None — new findings identified during this audit._
