@@ -7,15 +7,27 @@ import tkinter as tk
 from dataclasses import dataclass
 from queue import Empty
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import Callable, Dict, List
+from typing import TYPE_CHECKING, Callable, Dict, List
 
-from ui_support import StatusBanner, ThemeManager, ThemeTargets
+if TYPE_CHECKING:  # pragma: no cover - import only for type checking
+    from ui_support import StatusBanner as StatusBannerType
+    from ui_support import ThemeManager as ThemeManagerType
+    from ui_support import ThemeTargets as ThemeTargetsType
+else:
+    StatusBannerType = object  # type: ignore[assignment]
+    ThemeManagerType = object  # type: ignore[assignment]
+    ThemeTargetsType = object  # type: ignore[assignment]
+
+StatusBanner: type | None = None
+ThemeManager: type | None = None
+ThemeTargets: type | None = None
 
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
 from logging_utils import logger
 from processor import FileProcessor
 from services import ExtractionRequest, ExtractorService
+from services.extension_utils import normalise_extension_tokens
 
 STATUS_QUEUE_MAX_SIZE = 256
 QUEUE_IDLE_POLL_MS = 80
@@ -89,6 +101,16 @@ class FileExtractorGUI:
         self.style = ttk.Style(self.master)
 
         try:
+            global StatusBanner, ThemeManager, ThemeTargets
+            from ui_support import (
+                StatusBanner as _StatusBanner,
+                ThemeManager as _ThemeManager,
+                ThemeTargets as _ThemeTargets,
+            )
+
+            StatusBanner = _StatusBanner
+            ThemeManager = _ThemeManager
+            ThemeTargets = _ThemeTargets
             self.config = Config()
             # Initialize accelerator callbacks before UI setup registers shortcuts.
             self._accelerator_callbacks: list[Callable[[tk.Event], str]] = []
@@ -628,16 +650,7 @@ class FileExtractorGUI:
         if not self.output_file_name.get():
             raise ValueError("Please specify an output file name.")
 
-        selected_extensions = [
-            ext for ext, variable in self.extension_vars.items() if variable.get()
-        ]
-        custom_exts = [
-            ext.strip()
-            for ext in self.custom_extensions.get().split(",")
-            if ext.strip()
-        ]
-
-        if not (selected_extensions or custom_exts):
+        if not self._gather_selected_extensions():
             raise ValueError("Please select at least one file extension.")
 
     def prepare_extraction(self) -> None:
@@ -662,13 +675,7 @@ class FileExtractorGUI:
         mode = self.mode.get()
         include_hidden = self.include_hidden.get()
 
-        extensions = [ext for ext, var in self.extension_vars.items() if var.get()]
-        custom_exts = [
-            ext.strip()
-            for ext in self.custom_extensions.get().split(",")
-            if ext.strip()
-        ]
-        extensions.extend(custom_exts)
+        extensions = self._gather_selected_extensions()
 
         exclude_files = [
             f.strip() for f in self.exclude_files.get().split(",") if f.strip()
@@ -683,7 +690,7 @@ class FileExtractorGUI:
             folder_path=folder_path,
             mode=mode,
             include_hidden=include_hidden,
-            extensions=tuple(extensions),
+            extensions=extensions,
             exclude_files=tuple(exclude_files),
             exclude_folders=tuple(exclude_folders),
             output_file_name=output_file_name,
@@ -696,6 +703,20 @@ class FileExtractorGUI:
             )
         finally:
             self.master.after(QUEUE_ACTIVE_POLL_MS, self.check_queue)
+
+    # Fix: Q-103
+    def _gather_selected_extensions(self) -> tuple[str, ...]:
+        """Return the normalised extensions selected via the UI."""
+
+        predefined = [
+            ext for ext, variable in self.extension_vars.items() if variable.get()
+        ]
+        custom = [
+            token.strip()
+            for token in self.custom_extensions.get().split(",")
+            if token.strip()
+        ]
+        return normalise_extension_tokens((*predefined, *custom))
 
     def update_progress(self, processed_files: int, total_files: int) -> None:
         """Update progress bar and status with error handling."""
@@ -922,6 +943,11 @@ class FileExtractorGUI:
 
         self.extraction_in_progress = False
         self.extract_button.config(state="normal")
+        # Fix: Q-107 - restore keyboard focus to the primary action button.
+        try:
+            self.extract_button.focus_set()
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug("Unable to restore focus to extract button", exc_info=True)
         status_message = self._pending_status_message or "Ready"
         self._pending_status_message = None
         self.status_var.set(status_message)

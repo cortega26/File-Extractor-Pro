@@ -15,6 +15,7 @@ from constants import COMMON_EXTENSIONS
 from logging_utils import configure_logging, logger
 from processor import FileProcessor
 from services.extractor_service import ExtractionRequest, ExtractorService
+from services.extension_utils import normalise_extension_tokens
 
 
 class ThreadLike(Protocol):
@@ -99,15 +100,7 @@ def _positive_int(raw_value: str) -> int:
 def _normalise_extensions(raw_extensions: Iterable[str]) -> tuple[str, ...]:
     """Ensure CLI extensions include a leading dot and deduplicate values."""
 
-    normalised: list[str] = []
-    for extension in raw_extensions:
-        candidate = extension.strip().lower()
-        if not candidate:
-            continue
-        if candidate not in {"*", "*.*"} and not candidate.startswith("."):
-            candidate = f".{candidate}"
-        normalised.append(candidate)
-    return tuple(dict.fromkeys(normalised))
+    return normalise_extension_tokens(raw_extensions)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -260,7 +253,9 @@ def _progress_callback(processed: int, total: int) -> None:
     if total <= 0:
         logger.info("Processed %s files", processed)
         return
-    percent = (processed / total) * 100
+    # Fix: Q-102 - prevent progress percentages from exceeding 100%.
+    safe_processed = min(processed, total)
+    percent = (safe_processed / total) * 100
     logger.info("Progress: %.1f%% (%s/%s)", percent, processed, total)
 
 

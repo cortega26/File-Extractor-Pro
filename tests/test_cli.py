@@ -10,7 +10,7 @@ from queue import Queue
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from constants import COMMON_EXTENSIONS
-from services.cli import CLIOptions, parse_arguments, run_cli
+from services.cli import CLIOptions, _progress_callback, parse_arguments, run_cli
 from services.extractor_service import ExtractionRequest
 
 logger = logging.getLogger("file_extractor")
@@ -115,7 +115,7 @@ class DroppingStateService:
     def generate_report(self, *, output_path: str) -> str:
         return output_path
 
-    def get_last_state_payload(self) -> dict[str, str]:
+    def get_last_state_payload(self) -> dict[str, object]:
         return dict(self._last_state)
 
 
@@ -172,6 +172,22 @@ def test_parse_arguments_accepts_wildcard(tmp_path: Path) -> None:
     options = parse_arguments([str(tmp_path), "--extensions", "*"])
 
     assert options.extensions == ("*",)
+
+
+def test_parse_arguments_handles_glob_patterns(tmp_path: Path) -> None:
+    options = parse_arguments(
+        [str(tmp_path), "--extensions", "*.PY", "readme"]
+    )
+
+    assert options.extensions == (".py", ".readme")
+
+
+def test_progress_callback_clamps_percentage(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="file_extractor")
+
+    _progress_callback(5, 2)
+
+    assert any("Progress: 100.0%" in record.getMessage() for record in caplog.records)
 
 
 def test_run_cli_success(caplog, tmp_path: Path) -> None:

@@ -7,8 +7,6 @@ from tkinter import ttk
 
 import pytest
 
-from ui_support import StatusBanner, ThemeManager, ThemeTargets
-
 
 @pytest.fixture(name="tk_root")
 def fixture_tk_root() -> tk.Tk:
@@ -23,7 +21,9 @@ def fixture_tk_root() -> tk.Tk:
     root.destroy()
 
 
-def _build_theme_manager(root: tk.Tk) -> tuple[ThemeManager, ttk.Frame, ttk.Frame, ttk.Label, tk.Text]:
+def _build_theme_manager(root: tk.Tk):
+    from ui_support import ThemeManager, ThemeTargets
+
     style = ttk.Style(root)
     main_frame = ttk.Frame(root)
     extensions_frame = ttk.Frame(root)
@@ -60,6 +60,8 @@ def test_theme_manager_applies_styles(tk_root: tk.Tk) -> None:
 # Fix: ux_accessibility_status_banner
 def test_status_banner_respects_severity_styles(tk_root: tk.Tk) -> None:
     """Status banner should track severity and message text."""
+
+    from ui_support import StatusBanner
 
     banner = StatusBanner(tk_root)
     manager, *_ = _build_theme_manager(tk_root)

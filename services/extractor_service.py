@@ -81,7 +81,7 @@ class ExtractorService:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
-        self._latest_state_payload: dict[str, str] | None = None
+        self._latest_state_payload: dict[str, object] | None = None
 
     @property
     def file_processor(self) -> FileProcessor:
@@ -221,7 +221,8 @@ class ExtractorService:
     ) -> None:
         """Execute extraction inside a dedicated worker thread."""
 
-        state_payload: dict[str, str] = {"status": "finished", "result": "success"}
+        # Fix: Q-104 - allow non-string values in state payloads for metrics.
+        state_payload: dict[str, object] = {"status": "finished", "result": "success"}
         try:
             self._file_processor.extract_files(
                 folder_path,
@@ -274,7 +275,7 @@ class ExtractorService:
             with self._lock:
                 self._thread = None
 
-    def _publish_state_update(self, payload: dict[str, str]) -> None:
+    def _publish_state_update(self, payload: dict[str, object]) -> None:
         """Publish a non-blocking service state update message."""
 
         self._latest_state_payload = dict(payload)
@@ -320,7 +321,7 @@ class ExtractorService:
             logger.warning("Dropping state update due to repeated saturation")
 
     # Fix: Q-106
-    def get_last_state_payload(self) -> dict[str, str] | None:
+    def get_last_state_payload(self) -> dict[str, object] | None:
         """Return the most recent state payload even if it could not be enqueued."""
 
         if self._latest_state_payload is None:
