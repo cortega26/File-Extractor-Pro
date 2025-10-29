@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 from typing import Iterable, List, Sequence
 
@@ -25,10 +26,26 @@ def build_security_commands(skipped: Sequence[str] | None = None) -> List[List[s
 
 
 # Fix: testing_ci_security_scanners
+def _ensure_tool_available(command_name: str) -> None:
+    """Raise an error when the required scanner is not on PATH."""
+
+    if shutil.which(command_name):
+        return
+    raise RuntimeError(
+        (
+            "Required security tool '%s' is not installed. "
+            "Install it and re-run the security checks."
+        )
+        % command_name
+    )
+
+
+# Fix: testing_ci_security_scanners
 def run_security_checks(commands: Iterable[Command]) -> int:
     """Execute the configured security commands sequentially."""
 
     for command in commands:
+        _ensure_tool_available(command[0])
         completed = subprocess.run(command, check=False)
         if completed.returncode != 0:
             return completed.returncode

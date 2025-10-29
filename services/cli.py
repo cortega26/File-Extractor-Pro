@@ -251,7 +251,8 @@ def _progress_callback(processed: int, total: int) -> None:
     """Default progress callback used by the CLI."""
 
     if total <= 0:
-        logger.info("Processed %s files", processed)
+        # Fix: Q-102 - provide context when totals are still being estimated.
+        logger.info("Processed %s files (estimating total workload)", processed)
         return
     # Fix: Q-102 - prevent progress percentages from exceeding 100%.
     safe_processed = min(processed, total)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterator, Sequence
 from xml.etree import ElementTree as ET
 
 
@@ -13,10 +13,13 @@ DEFAULT_THRESHOLD = 0.9
 
 
 # Fix: testing_ci_coverage_thresholds
-def _iter_class_nodes(tree: ET.ElementTree) -> Iterable[ET.Element]:
+def _iter_class_nodes(tree: ET.ElementTree) -> Iterator[ET.Element]:
     """Yield coverage ``class`` nodes from the parsed XML tree."""
 
     root = tree.getroot()
+    if root is None:
+        return
+
     for class_node in root.findall(".//class"):
         if class_node.get("filename"):
             yield class_node
@@ -49,7 +52,8 @@ def evaluate_coverage(
     failing: list[tuple[str, float]] = []
     normalised_prefixes = tuple(prefix.rstrip("/") + "/" for prefix in ignore_prefixes)
 
-    for class_node in _iter_class_nodes(tree):
+    # Fix: Q-104 - satisfy strict typing by constraining ElementTree generics.
+    for class_node in _iter_class_nodes(tree):  # type: ignore[arg-type]
         raw_filename = class_node.get("filename", "")
         filename = _normalise_path(raw_filename)
         if any(filename.startswith(prefix) for prefix in normalised_prefixes):

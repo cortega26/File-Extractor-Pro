@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Callable, Sequence, cast
+
+import tkinter as tk
 
 from ui import FileExtractorGUI
 
@@ -148,27 +150,34 @@ def test_handle_service_state_success_with_no_matches_prompts_user() -> None:
 
 # Fix: Q-107
 def test_register_keyboard_shortcuts_announces_accelerators() -> None:
-    class RecordingMaster:
+    class RecordingKeyboardManager:
         def __init__(self) -> None:
-            self.bindings: list[tuple[str, object, str | None]] = []
+            self.bindings: dict[str, object] = {}
 
-        def bind_all(
-            self, sequence: str, callback: object, add: str | None = None
+        def register_shortcuts(
+            self, shortcuts: dict[str, Callable[[tk.Event], str]]
         ) -> None:
-            self.bindings.append((sequence, callback, add))
+            self.bindings.update(shortcuts)
+
+        def configure_focus_ring(
+            self,
+            *,
+            preferred_order: Sequence[tk.Widget],
+            skip: Sequence[tk.Widget] = (),
+        ) -> None:
+            pass
 
     gui = cast(FileExtractorGUI, object.__new__(FileExtractorGUI))
-    gui.master = RecordingMaster()
+    gui.keyboard_manager = RecordingKeyboardManager()  # type: ignore[attr-defined]
     setattr(gui, "execute", lambda: None)
     setattr(gui, "cancel_extraction", lambda: None)
     setattr(gui, "generate_report", lambda: None)
-    gui._accelerator_callbacks = []  # type: ignore[attr-defined]
     gui.status_var = cast(Any, DummyVar(""))
     gui.extraction_in_progress = False
 
     FileExtractorGUI._register_keyboard_shortcuts(gui)
 
-    sequences = {seq for seq, _cb, _add in gui.master.bindings}
+    sequences = set(gui.keyboard_manager.bindings)  # type: ignore[attr-defined]
     assert {"<Alt-e>", "<Alt-c>", "<Alt-g>"}.issubset(sequences)
     assert gui.status_var.get().startswith("Shortcuts: Alt+E")
 

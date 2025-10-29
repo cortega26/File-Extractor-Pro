@@ -190,6 +190,17 @@ def test_progress_callback_clamps_percentage(caplog) -> None:
     assert any("Progress: 100.0%" in record.getMessage() for record in caplog.records)
 
 
+def test_progress_callback_reports_unknown_totals(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="file_extractor")
+
+    _progress_callback(3, -1)
+
+    assert any(
+        "estimating total workload" in record.getMessage().lower()
+        for record in caplog.records
+    )
+
+
 def test_run_cli_success(caplog, tmp_path: Path) -> None:
     options = CLIOptions(
         folder_path=tmp_path,

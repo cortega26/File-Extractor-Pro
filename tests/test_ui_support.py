@@ -76,3 +76,30 @@ def test_status_banner_respects_severity_styles(tk_root: tk.Tk) -> None:
     assert banner._current_severity == "success"
     assert "complete" in banner._message_var.get().lower()
 
+
+# Fix: Q-107
+def test_keyboard_manager_configures_focus_and_shortcuts(tk_root: tk.Tk) -> None:
+    from ui_support import KeyboardManager
+
+    entry = ttk.Entry(tk_root)
+    button = ttk.Button(tk_root)
+    label = ttk.Label(tk_root)
+
+    manager = KeyboardManager(tk_root)
+
+    recorded: dict[str, object] = {}
+
+    def handler(event: tk.Event) -> str:  # type: ignore[valid-type]
+        recorded["triggered"] = True
+        return "break"
+
+    manager.register_shortcuts({"<Alt-e>": handler})
+    manager.configure_focus_ring(preferred_order=[entry, button], skip=[label])
+
+    assert entry.cget("takefocus") == "1"
+    assert button.cget("takefocus") == "1"
+    assert label.cget("takefocus") == "0"
+
+    entry.event_generate("<Alt-e>")
+    assert "triggered" in recorded
+

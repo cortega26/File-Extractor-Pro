@@ -150,8 +150,11 @@ gitleaks detect --redact
 python tools/security_checks.py  # Runs all scanners sequentially
 ```
 
-All three tools install via `requirements-dev.txt`. Capture and address any
-medium- or high-severity findings before merging.
+# Fix: testing_ci_security_scanners
+`bandit` and `pip-audit` install via `requirements-dev.txt`. Install the latest
+`gitleaks` binary from the [official releases](https://github.com/gitleaks/gitleaks/releases)
+and ensure it is on your `PATH` so `tools/security_checks.py` can locate it.
+Capture and address any medium- or high-severity findings before merging.
 
 ## Requirements
 

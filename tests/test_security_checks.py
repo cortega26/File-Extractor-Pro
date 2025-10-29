@@ -20,6 +20,8 @@ def test_build_security_commands_respects_skip_filter() -> None:
 def test_run_security_checks_stops_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[Sequence[str]] = []
 
+    monkeypatch.setattr(security_checks.shutil, "which", lambda _: "/usr/bin/tool")
+
     def fake_run(command: Sequence[str], check: bool = False) -> Mock:  # type: ignore[override]
         calls.append(tuple(command))
         mock_result = Mock()
@@ -36,6 +38,8 @@ def test_run_security_checks_stops_on_failure(monkeypatch: pytest.MonkeyPatch) -
 def test_main_honours_skip_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: list[Iterable[str]] = []
 
+    monkeypatch.setattr(security_checks.shutil, "which", lambda _: "/usr/bin/tool")
+
     def fake_run(command: Sequence[str], check: bool = False) -> Mock:  # type: ignore[override]
         recorded.append(command)
         mock_result = Mock()
@@ -47,4 +51,14 @@ def test_main_honours_skip_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert exit_code == 0
     assert [cmd[0] for cmd in recorded] == ["pip-audit", "gitleaks"]
+
+
+# Fix: testing_ci_security_scanners
+def test_run_security_checks_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(security_checks.shutil, "which", lambda _: None)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        security_checks.run_security_checks([["bandit"]])
+
+    assert "bandit" in str(excinfo.value)
 
