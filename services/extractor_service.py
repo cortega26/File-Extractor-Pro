@@ -196,6 +196,60 @@ class ExtractorService:
 
         return self._thread is not None and self._thread.is_alive()
 
+    # Fix: Q-106
+    def _enqueue_control_message(self, level: str, payload: object) -> None:
+        """Enqueue non-state service messages without blocking."""
+
+        message = (level, payload)
+        try:
+            self.output_queue.put_nowait(message)
+            return
+        except Full:
+            pass
+
+        preserved_states: list[tuple[str, object]] = []
+        evicted: tuple[str, object] | None = None
+
+        while evicted is None:
+            try:
+                candidate = self.output_queue.get_nowait()
+            except Empty:
+                break
+
+            if candidate[0] == "state":
+                preserved_states.append(candidate)
+                continue
+
+            evicted = candidate
+
+        if evicted is None and preserved_states:
+            evicted = preserved_states.pop(0)
+            logger.warning(
+                "Output queue saturated with state updates; dropping oldest state"
+            )
+
+        for state_message in preserved_states:
+            try:
+                self.output_queue.put_nowait(state_message)
+            except Full:
+                logger.warning(
+                    "Failed to restore preserved state message after saturation"
+                )
+                break
+
+        if evicted is None:
+            logger.warning(
+                "Unable to enqueue %s message due to saturation; dropping payload", level
+            )
+            return
+
+        try:
+            self.output_queue.put_nowait(message)
+        except Full:
+            logger.warning(
+                "Dropping %s message due to repeated saturation", level
+            )
+
     def cancel(self) -> None:
         """Signal cancellation to UI consumers via status queue."""
 
@@ -203,7 +257,9 @@ class ExtractorService:
             return
 
         if not self._cancel_event.is_set():
-            self.output_queue.put(("info", "Extraction cancellation requested"))
+            self._enqueue_control_message(
+                "info", "Extraction cancellation requested"
+            )
             logger.info("Extraction cancellation requested by user")
 
         self._cancel_event.set()
@@ -238,10 +294,10 @@ class ExtractorService:
         except ExtractionCancelled:
             logger.info("Extraction cancelled before completion")
             state_payload["result"] = "cancelled"
-            self.output_queue.put(("info", "Extraction cancelled"))
+            self._enqueue_control_message("info", "Extraction cancelled")
         except Exception as exc:  # pragma: no cover - logged and surfaced to UI
             logger.error("Error in extraction worker: %s", exc)
-            self.output_queue.put(("error", f"Extraction error: {exc}"))
+            self._enqueue_control_message("error", f"Extraction error: {exc}")
             state_payload["result"] = "error"
             state_payload["message"] = str(exc)
         finally:
@@ -262,6 +318,8 @@ class ExtractorService:
                             "max_queue_depth",
                             "dropped_messages",
                             "skipped_files",
+                            "total_files_known",
+                            "total_files_estimated",
                         )
                         if key in metrics_candidate
                     }

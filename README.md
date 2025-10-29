@@ -131,11 +131,13 @@ Run the full suite with coverage thresholds enforced:
 
 ```sh
 pytest
+python tools/coverage_gate.py  # Enforces ≥90% per-file coverage for tracked modules
 ```
 
 The configuration enables branch coverage and fails the run when overall coverage
 drops below 80%. Aim for ≥90% coverage on changed modules to satisfy internal
-quality targets.
+quality targets. The `coverage_gate` helper reads `coverage.xml` and reports any
+files that dip below the threshold so regressions are caught before CI.
 
 ## Security Scans
 

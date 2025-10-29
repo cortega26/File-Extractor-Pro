@@ -413,7 +413,9 @@ def test_extract_files_falls_back_to_indeterminate_progress_on_memory_error(
     warnings = [payload for level, payload in message_queue.queue if level == "warning"]
     assert any("indeterminate" in str(message).lower() for message in warnings)
     metrics = processor.last_run_metrics
-    assert metrics["total_files"] == -1
+    assert metrics["total_files"] == 1
+    assert metrics["total_files_known"] is False
+    assert metrics["total_files_estimated"] == 1
 
 
 # Fix: Q-105

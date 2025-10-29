@@ -725,7 +725,15 @@ class FileExtractorGUI:
 
             def apply_update() -> None:
                 try:
-                    if total_files > 0:
+                    if total_files == 0:
+                        self._ensure_progress_determinate()
+                        progress = max(self._last_progress_value, 0.0)
+                        # Fix: Q-102 - surface actionable guidance when nothing matches.
+                        status_message = (
+                            "No eligible files matched the current filters"
+                        )
+                        self.status_banner.show_warning(status_message)
+                    elif total_files > 0:
                         self._ensure_progress_determinate()
                         progress = (processed_files / total_files) * 100
                         progress = max(self._last_progress_value, min(progress, 100.0))
@@ -823,12 +831,39 @@ class FileExtractorGUI:
             return
 
         self.extraction_in_progress = False
+        metrics = payload.get("metrics")
+        processed_files = skipped_files = None
+        if isinstance(metrics, dict):
+            processed_files = int(metrics.get("processed_files", 0))
+            skipped_files = int(metrics.get("skipped_files", 0))
+
         if result == "success":
-            self._pending_status_message = "Extraction complete"
-            self.status_banner.show_success(self._pending_status_message)
+            if processed_files == 0 and skipped_files == 0 and metrics:
+                # Fix: ux_accessibility_status_guidance - advise next steps when nothing matched.
+                self._pending_status_message = (
+                    "Extraction complete — no files matched the current filters. "
+                    "Adjust the extension list or enable hidden files."
+                )
+                self.status_banner.show_warning(self._pending_status_message)
+            elif metrics:
+                skipped_note = (
+                    f", skipped {skipped_files}"
+                    if skipped_files and skipped_files > 0
+                    else ""
+                )
+                self._pending_status_message = (
+                    f"Extraction complete — processed {processed_files}{skipped_note}"
+                )
+                self.status_banner.show_success(self._pending_status_message)
+            else:
+                self._pending_status_message = "Extraction complete"
+                self.status_banner.show_success(self._pending_status_message)
         elif result == "error":
             error_message = payload.get("message", "Extraction failed")
-            self._pending_status_message = f"Extraction failed: {error_message}"
+            self._pending_status_message = (
+                f"Extraction failed: {error_message}. "
+                "Review the log output for troubleshooting details."
+            )
             self.status_banner.show_error(self._pending_status_message)
         else:
             self._pending_status_message = "Extraction finished"

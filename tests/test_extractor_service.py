@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from queue import Full, Queue
 
 import pytest
@@ -308,6 +309,8 @@ def test_state_payload_includes_metrics(tmp_path: Path) -> None:
                 "max_queue_depth": 2,
                 "dropped_messages": 0,
                 "skipped_files": 1,
+                "total_files_known": True,
+                "total_files_estimated": 3,
             }
 
     service = ExtractorService(
@@ -343,3 +346,61 @@ def test_state_payload_includes_metrics(tmp_path: Path) -> None:
     assert metrics_payload is not None
     assert metrics_payload["processed_files"] == 3
     assert metrics_payload["skipped_files"] == 1
+    assert "total_files_known" in metrics_payload
+
+
+# Fix: Q-106
+def test_cancel_drops_oldest_message_when_queue_full() -> None:
+    queue: Queue[tuple[str, object]] = Queue(maxsize=1)
+    queue.put(("info", "existing"))
+    service = ExtractorService(output_queue=queue)
+    service._thread = type("AliveThread", (), {"is_alive": lambda self: True})()
+
+    service.cancel()
+
+    assert service._cancel_event.is_set()
+    remaining = queue.get_nowait()
+    assert remaining == ("info", "Extraction cancellation requested")
+
+
+# Fix: Q-106
+def test_error_path_enqueues_message_when_queue_full(tmp_path: Path) -> None:
+    queue: Queue[tuple[str, object]] = Queue(maxsize=1)
+    queue.put(("info", "existing"))
+
+    class ExplodingProcessor(DummyFileProcessor):
+        def extract_files(self, *args, **kwargs):  # type: ignore[override]
+            raise RuntimeError("boom")
+
+    service = ExtractorService(
+        output_queue=queue,
+        file_processor_factory=ExplodingProcessor,
+    )
+
+    request = ExtractionRequest(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    def noop_progress(*_args: object) -> None:
+        return None
+
+    thread = service.start_extraction(request=request, progress_callback=noop_progress)
+    thread.join(timeout=1)
+
+    messages: list[tuple[str, object]] = []
+    while not queue.empty():
+        messages.append(queue.get_nowait())
+
+    assert all(message != ("info", "existing") for message in messages)
+    assert any(
+        level == "state" and isinstance(payload, dict) and payload.get("result") == "error"
+        for level, payload in messages
+    )
+    last_state = service.get_last_state_payload()
+    assert last_state and last_state.get("message")
