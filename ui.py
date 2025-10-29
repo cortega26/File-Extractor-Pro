@@ -9,6 +9,8 @@ from queue import Empty
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Callable, Dict, List
 
+from ui_support import StatusBanner, ThemeManager, ThemeTargets
+
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
 from logging_utils import logger
@@ -57,7 +59,7 @@ def calculate_layout_profile(
     min_height = max(required_height, int(height * height_factor))
 
     main_column_weights = (1, 1, 1) if compact_layout else (0, 1, 0)
-    row_weights: Dict[int, int] = {10: 2, 4: 1}
+    row_weights: Dict[int, int] = {11: 2, 4: 1}
     if compact_layout:
         row_weights[5] = 1
 
@@ -90,6 +92,17 @@ class FileExtractorGUI:
             self.config = Config()
             self.setup_variables()
             self.setup_ui_components()
+            self.theme_manager = ThemeManager(
+                self.style,
+                ThemeTargets(
+                    master=self.master,
+                    main_frame=self.main_frame,
+                    extensions_frame=self.extensions_frame,
+                    status_bar=self.status_bar,
+                    output_text=self.output_text,
+                    menu_bar=getattr(self, "menu_bar", None),
+                ),
+            )
             self._current_layout_profile: LayoutProfile | None = None
             self.connect_event_handlers()
             self._configure_responsiveness()
@@ -112,7 +125,8 @@ class FileExtractorGUI:
             )
             self.output_queue = self.service.output_queue
 
-            self.apply_theme(self.config.get("theme", "light"))
+            initial_theme = self.config.get("theme", "light")
+            self.apply_theme(initial_theme)
         except Exception as exc:
             logger.critical("Failed to initialize GUI: %s", exc, exc_info=True)
             raise
@@ -268,24 +282,9 @@ class FileExtractorGUI:
         )
         self.progress_bar.grid(row=8, column=0, columnspan=3, sticky=tk.W + tk.E)
 
-        self.extract_button = ttk.Button(
-            self.main_frame,
-            text="Extract",
-            command=self.execute,
-            style="Accent.TButton",
-        )
-        self.extract_button.grid(row=9, column=0, pady=10, sticky=tk.W)
-        self.extract_button.configure(underline=0, takefocus=True)
+        self._build_actions_row(row=9)
 
-        self.cancel_button = ttk.Button(
-            self.main_frame,
-            text="Cancel",
-            command=self.cancel_extraction,
-        )
-        self.cancel_button.grid(row=9, column=1, pady=10, sticky=tk.W)
-        self.cancel_button.configure(underline=0, takefocus=True)
-
-        self.setup_output_area()
+        self.setup_output_area(start_row=10)
         self.setup_menu_bar()
         self.setup_status_bar()
         self._register_keyboard_shortcuts()
@@ -296,14 +295,26 @@ class FileExtractorGUI:
         # Fix: Q-102 - ensure the progress bar starts in determinate mode.
         self.progress_bar.configure(mode="determinate")
 
-    def setup_output_area(self) -> None:
-        """Set up output text area with improved formatting."""
+    # Fix: ux_accessibility_status_banner
+    def setup_output_area(self, *, start_row: int) -> None:
+        """Set up output text area with an accessible status banner."""
+
+        self.status_banner = StatusBanner(self.main_frame)
+        self.status_banner.grid(
+            row=start_row,
+            column=0,
+            columnspan=3,
+            sticky=tk.W + tk.E,
+            padx=5,
+            pady=(8, 0),
+        )
+        self.status_banner.hide()
 
         self.output_text = scrolledtext.ScrolledText(
             self.main_frame, wrap=tk.WORD, height=15
         )
         self.output_text.grid(
-            row=10,
+            row=start_row + 1,
             column=0,
             columnspan=3,
             sticky=tk.W + tk.E + tk.N + tk.S,
@@ -311,14 +322,61 @@ class FileExtractorGUI:
             pady=5,
         )
 
-        self.generate_report_button = ttk.Button(
+    # Fix: Q-107
+    def _build_actions_row(self, row: int) -> None:
+        """Create a grouped action row with predictable focus order."""
+
+        self.actions_frame = ttk.LabelFrame(
             self.main_frame,
+            text="Actions",
+            style="Main.TLabelframe",
+        )
+        self.actions_frame.grid(
+            row=row,
+            column=0,
+            columnspan=3,
+            sticky=tk.W + tk.E,
+            padx=5,
+            pady=(10, 0),
+        )
+        self.actions_frame.columnconfigure(0, weight=0)
+        self.actions_frame.columnconfigure(1, weight=0)
+        self.actions_frame.columnconfigure(2, weight=1)
+
+        self.extract_button = ttk.Button(
+            self.actions_frame,
+            text="Extract",
+            command=self.execute,
+            style="Accent.TButton",
+            takefocus=True,
+        )
+        self.extract_button.grid(row=0, column=0, padx=(10, 5), pady=10, sticky=tk.W)
+        self.extract_button.configure(underline=0)
+
+        self.cancel_button = ttk.Button(
+            self.actions_frame,
+            text="Cancel",
+            command=self.cancel_extraction,
+            takefocus=True,
+        )
+        self.cancel_button.grid(row=0, column=1, padx=5, pady=10, sticky=tk.W)
+        self.cancel_button.configure(underline=0)
+
+        self.generate_report_button = ttk.Button(
+            self.actions_frame,
             text="Generate Report",
             command=self.generate_report,
             style="TButton",
+            takefocus=True,
         )
-        self.generate_report_button.grid(row=11, column=0, columnspan=3, pady=10)
-        self.generate_report_button.configure(underline=0, takefocus=True)
+        self.generate_report_button.grid(
+            row=0,
+            column=2,
+            padx=(5, 10),
+            pady=10,
+            sticky=tk.E,
+        )
+        self.generate_report_button.configure(underline=0)
 
     def setup_menu_bar(self) -> None:
         """Set up application menu bar."""
@@ -695,9 +753,18 @@ class FileExtractorGUI:
                 drained_any = True
                 if message_type == "info":
                     self.output_text.insert(tk.END, message + "\n", "info")
+                    self._display_banner_message("info", message)
                 elif message_type == "error":
                     self.output_text.insert(tk.END, "ERROR: " + message + "\n", "error")
                     logger.error(message)
+                    self._display_banner_message("error", message)
+                elif message_type == "warning":
+                    warning_text = str(message)
+                    self.output_text.insert(
+                        tk.END, "WARNING: " + warning_text + "\n", "info"
+                    )
+                    logger.warning(warning_text)
+                    self._display_banner_message("warning", warning_text)
                 elif message_type == "state":
                     self._handle_service_state(message)
                     continue
@@ -731,16 +798,36 @@ class FileExtractorGUI:
         self.extraction_in_progress = False
         if result == "success":
             self._pending_status_message = "Extraction complete"
+            self.status_banner.show_success(self._pending_status_message)
         elif result == "error":
             error_message = payload.get("message", "Extraction failed")
             self._pending_status_message = f"Extraction failed: {error_message}"
+            self.status_banner.show_error(self._pending_status_message)
         else:
             self._pending_status_message = "Extraction finished"
+            self.status_banner.show(self._pending_status_message, severity="info")
 
         try:
             self.extract_button.config(state="normal")
         except Exception as exc:  # pragma: no cover - UI specific safeguard
             logger.debug("Failed to update button state: %s", exc)
+
+    # Fix: ux_accessibility_status_banner
+    def _display_banner_message(self, level: str, payload: object) -> None:
+        """Surface contextual feedback in the status banner."""
+
+        message = str(payload).strip()
+        if not message:
+            return
+
+        if level == "error":
+            self.status_banner.show_error(message)
+        elif level == "warning":
+            self.status_banner.show_warning(message)
+        elif level == "info":
+            lowered = message.lower()
+            if "extraction" in lowered or "report" in lowered:
+                self.status_banner.show(message, severity="info")
 
     def generate_report(self) -> None:
         """Generate extraction report with improved formatting and error handling."""
@@ -803,224 +890,26 @@ class FileExtractorGUI:
             logger.error("Error toggling theme: %s", exc)
 
     def apply_theme(self, theme: str) -> None:
-        """Apply theme with better color scheme and error handling."""
+        """Apply theme using the extracted theme manager."""
 
         try:
-            palette = self._get_theme_palette(theme)
-            base_theme = palette["base_theme"]
-            if base_theme in self.style.theme_names():
-                self.style.theme_use(base_theme)
-            else:
-                self.style.theme_use("clam")
-
-            self.master.configure(bg=palette["window_bg"])
-            self.main_frame.configure(style="Main.TFrame")
-            self.extensions_frame.configure(style="Main.TFrame")
-            if hasattr(self, "menu_bar"):
-                try:
-                    self.menu_bar.configure(
-                        background=palette["menu_bg"],
-                        foreground=palette["menu_text"],
-                        activebackground=palette["menu_active_bg"],
-                        activeforeground=palette["menu_active_text"],
-                    )
-                    menu_end_index = self.menu_bar.index("end") or -1
-                    for menu_index in range(menu_end_index + 1):
-                        self.menu_bar.entryconfig(
-                            menu_index,
-                            background=palette["menu_bg"],
-                            foreground=palette["menu_text"],
-                            activebackground=palette["menu_active_bg"],
-                            activeforeground=palette["menu_active_text"],
-                        )
-                except tk.TclError:
-                    logger.debug("Menu styling not supported on this platform")
-
-            self.style.configure("Main.TFrame", background=palette["frame_bg"])
-            self.style.configure(
-                "TLabel",
-                background=palette["frame_bg"],
-                foreground=palette["text"],
+            self.theme_manager.update_targets(
+                ThemeTargets(
+                    master=self.master,
+                    main_frame=self.main_frame,
+                    extensions_frame=self.extensions_frame,
+                    status_bar=self.status_bar,
+                    output_text=self.output_text,
+                    menu_bar=getattr(self, "menu_bar", None),
+                )
             )
-            self.style.configure(
-                "Status.TLabel",
-                background=palette["status_bg"],
-                foreground=palette["status_text"],
-                relief=tk.SUNKEN,
-            )
-            self.status_bar.configure(style="Status.TLabel")
-
-            self.style.configure(
-                "Main.TCheckbutton",
-                background=palette["frame_bg"],
-                foreground=palette["text"],
-            )
-            self.style.map(
-                "Main.TCheckbutton",
-                background=[
-                    ("active", palette["check_active_bg"]),
-                ],
-                foreground=[
-                    ("disabled", palette["disabled_text"]),
-                ],
-            )
-
-            self.style.configure(
-                "Main.TRadiobutton",
-                background=palette["frame_bg"],
-                foreground=palette["text"],
-            )
-            self.style.map(
-                "Main.TRadiobutton",
-                background=[
-                    ("active", palette["check_active_bg"]),
-                ],
-                foreground=[
-                    ("disabled", palette["disabled_text"]),
-                ],
-            )
-
-            self.style.configure(
-                "TButton",
-                background=palette["button_bg"],
-                foreground=palette["button_text"],
-                borderwidth=1,
-            )
-            self.style.map(
-                "TButton",
-                background=[
-                    ("active", palette["button_active_bg"]),
-                    ("disabled", palette["button_disabled_bg"]),
-                ],
-                foreground=[
-                    ("disabled", palette["disabled_text"]),
-                ],
-            )
-
-            self.style.configure(
-                "Accent.TButton",
-                background=palette["accent_bg"],
-                foreground=palette["accent_text"],
-                padding=(6, 4),
-            )
-            self.style.map(
-                "Accent.TButton",
-                background=[
-                    ("active", palette["accent_active_bg"]),
-                    ("disabled", palette["button_disabled_bg"]),
-                ],
-                foreground=[
-                    ("disabled", palette["disabled_text"]),
-                ],
-            )
-
-            self.style.configure(
-                "TEntry",
-                fieldbackground=palette["entry_bg"],
-                background=palette["frame_bg"],
-                foreground=palette["text"],
-                insertcolor=palette["text"],
-                borderwidth=1,
-            )
-            self.style.map(
-                "TEntry",
-                fieldbackground=[
-                    ("disabled", palette["entry_disabled_bg"]),
-                ],
-                foreground=[
-                    ("disabled", palette["disabled_text"]),
-                ],
-            )
-
-            self.style.configure(
-                "TCombobox",
-                fieldbackground=palette["entry_bg"],
-                background=palette["frame_bg"],
-                foreground=palette["text"],
-            )
-
-            self.style.configure(
-                "Main.Horizontal.TProgressbar",
-                troughcolor=palette["progress_trough"],
-                background=palette["accent_bg"],
-                bordercolor=palette["frame_bg"],
-                lightcolor=palette["accent_bg"],
-                darkcolor=palette["accent_active_bg"],
-            )
-
-            self.output_text.config(
-                bg=palette["text_area_bg"],
-                fg=palette["text_area_fg"],
-                insertbackground=palette["text_area_fg"],
-            )
-            self.output_text.tag_configure("info", foreground=palette["text_area_fg"])
-            self.output_text.tag_configure("error", foreground=palette["error_text"])
-
+            self.theme_manager.apply(theme)
+            palette = self.theme_manager.active_palette()
+            self.status_banner.apply_palette(palette)
+            self.status_banner.clear()
             logger.debug("Theme applied: %s", theme)
         except Exception as exc:
             logger.error("Error applying theme: %s", exc)
-
-    def _get_theme_palette(self, theme: str) -> Dict[str, str]:
-        """Return palette settings for supported themes."""
-
-        palettes: Dict[str, Dict[str, str]] = {
-            "dark": {
-                "base_theme": "clam",
-                "window_bg": "#1b1d1f",
-                "frame_bg": "#25282a",
-                "text": "#f5f5f5",
-                "status_bg": "#1b1d1f",
-                "status_text": "#d7d7d7",
-                "menu_bg": "#25282a",
-                "menu_text": "#f5f5f5",
-                "menu_active_bg": "#303335",
-                "menu_active_text": "#ffffff",
-                "check_active_bg": "#303335",
-                "button_bg": "#303335",
-                "button_text": "#f5f5f5",
-                "button_active_bg": "#3a4044",
-                "button_disabled_bg": "#2a2d2f",
-                "accent_bg": "#3f72ff",
-                "accent_text": "#ffffff",
-                "accent_active_bg": "#335fcc",
-                "entry_bg": "#1f2224",
-                "entry_disabled_bg": "#2a2d2f",
-                "disabled_text": "#7f868a",
-                "progress_trough": "#1f2224",
-                "text_area_bg": "#1f2123",
-                "text_area_fg": "#f5f5f5",
-                "error_text": "#ff8787",
-            },
-            "light": {
-                "base_theme": "clam",
-                "window_bg": "#e9edf2",
-                "frame_bg": "#f7f9fc",
-                "text": "#1f2933",
-                "status_bg": "#d8dee6",
-                "status_text": "#1f2933",
-                "menu_bg": "#f7f9fc",
-                "menu_text": "#1f2933",
-                "menu_active_bg": "#dce3ef",
-                "menu_active_text": "#1f2933",
-                "check_active_bg": "#e1e7ef",
-                "button_bg": "#e1e7ef",
-                "button_text": "#1f2933",
-                "button_active_bg": "#d0d7e2",
-                "button_disabled_bg": "#c3c9d3",
-                "accent_bg": "#3f51b5",
-                "accent_text": "#ffffff",
-                "accent_active_bg": "#32408f",
-                "entry_bg": "#ffffff",
-                "entry_disabled_bg": "#e2e6ed",
-                "disabled_text": "#9aa5b1",
-                "progress_trough": "#d8dee6",
-                "text_area_bg": "#ffffff",
-                "text_area_fg": "#1f2933",
-                "error_text": "#c62828",
-            },
-        }
-        selected_palette = palettes.get(theme, palettes["light"])
-        return dict(selected_palette)
 
     def reset_extraction_state(self) -> None:
         """Reset the application state after extraction."""
@@ -1042,6 +931,7 @@ class FileExtractorGUI:
             self.extraction_in_progress = False
             self.service.cancel()
             self.reset_extraction_state()
+            self.status_banner.show_warning("Extraction cancelled by user")
 
     def on_closing(self) -> None:
         """Handle application closing with proper cleanup."""

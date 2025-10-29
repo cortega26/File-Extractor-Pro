@@ -282,11 +282,12 @@ def run_cli(
         logger.setLevel(getattr(logging, options.log_level.upper(), logging.INFO))
 
     # Fix: Q-105 - allow CLI callers to configure the soft file size cap.
-    processor_factory: Callable[[Queue], FileProcessor] | None = None
+    # Fix: Q-104 - ensure strict typing of injected processor factories.
+    processor_factory: Callable[[Queue[tuple[str, object]]], FileProcessor] | None = None
     service_kwargs: dict[str, object] = {}
     if options.max_file_size_mb is not None:
 
-        def processor_factory(output_queue: Queue) -> FileProcessor:
+        def processor_factory(output_queue: Queue[tuple[str, object]]) -> FileProcessor:
             return FileProcessor(
                 output_queue,
                 max_file_size_mb=options.max_file_size_mb,

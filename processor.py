@@ -9,7 +9,7 @@ from copy import deepcopy
 from datetime import datetime
 from queue import Empty, Full, Queue
 from time import perf_counter
-from typing import IO, Any, Callable, Dict, Iterable, MutableMapping, Sequence, Set
+from typing import IO, Any, Callable, Dict, Iterable, MutableMapping, Sequence, Set, Tuple
 
 from constants import CHUNK_SIZE, SPECIFICATION_FILES
 from logging_utils import logger
@@ -57,9 +57,10 @@ class ExtractionCancelled(RuntimeError):
 class FileProcessor:
     """Enhanced file processor with improved error handling and performance."""
 
+    # Fix: Q-104 - annotate queue payloads for strict type checking support.
     def __init__(
         self,
-        output_queue: Queue,
+        output_queue: Queue[Tuple[str, object]],
         *,
         max_file_size_mb: int | None = None,
     ) -> None:
@@ -109,7 +110,7 @@ class FileProcessor:
     def _enqueue_message(self, level: str, message: object) -> None:
         """Safely enqueue status messages without blocking the worker thread."""
 
-        payload = (level, message)
+        payload: Tuple[str, object] = (level, message)
 
         def drain_for_capacity() -> list[tuple[str, object]]:
             drained_local: list[tuple[str, object]] = []
@@ -138,7 +139,7 @@ class FileProcessor:
             self._dropped_messages += 1
             return drained_local
 
-        drained_batches: list[list[tuple[str, object]]] = []
+        drained_batches: list[list[Tuple[str, object]]] = []
         attempts = 0
 
         while True:
