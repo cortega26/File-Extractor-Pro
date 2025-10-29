@@ -8,6 +8,7 @@ from queue import Queue
 
 import pytest
 
+from constants import COMMON_EXTENSIONS
 from processor import ExtractionCancelled
 from services.extractor_service import ExtractionRequest, ExtractorService
 
@@ -22,6 +23,23 @@ class DummyFileProcessor:
     def extract_files(self, *args, progress_callback, **kwargs):  # type: ignore[override]
         progress_callback(1, 1)
         self.called.set()
+
+
+class RecordingExtensionsProcessor(DummyFileProcessor):
+    """Capture the extensions passed into extract_files for assertions."""
+
+    def __init__(self, output_queue: Queue) -> None:
+        super().__init__(output_queue)
+        self.seen_extensions: tuple[str, ...] | None = None
+
+    def extract_files(self, *args, progress_callback, **kwargs):  # type: ignore[override]
+        if len(args) >= 4:
+            extensions_arg = args[3]
+            if isinstance(extensions_arg, tuple):
+                self.seen_extensions = extensions_arg
+            else:
+                self.seen_extensions = tuple(extensions_arg)
+        super().extract_files(*args, progress_callback=progress_callback, **kwargs)
 
 
 def test_start_extraction_runs_worker(tmp_path):
@@ -65,6 +83,38 @@ def test_start_extraction_runs_worker(tmp_path):
     assert state_messages
     assert state_messages[-1]["status"] == "finished"
     assert state_messages[-1]["result"] == "success"
+
+
+def test_start_extraction_defaults_common_extensions_when_inclusion(tmp_path):
+    progress_called = threading.Event()
+
+    def progress_callback(processed: int, total: int) -> None:
+        progress_called.set()
+
+    service = ExtractorService(
+        file_processor_factory=RecordingExtensionsProcessor,
+        output_queue=Queue(maxsize=4),
+    )
+
+    request = ExtractionRequest(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    thread = service.start_extraction(
+        request=request,
+        progress_callback=progress_callback,
+    )
+    thread.join(timeout=1)
+
+    assert not thread.is_alive()
+    assert progress_called.is_set()
+    assert service.file_processor.seen_extensions == tuple(COMMON_EXTENSIONS)
 
 
 def test_start_extraction_raises_when_running(tmp_path):
