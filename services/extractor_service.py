@@ -9,6 +9,7 @@ from datetime import datetime
 from queue import Empty, Full, Queue
 from typing import Any, Callable, Dict, Sequence
 
+from constants import COMMON_EXTENSIONS
 from logging_utils import logger
 from processor import ExtractionCancelled, FileProcessor
 
@@ -158,6 +159,9 @@ class ExtractorService:
             )
 
         resolved_extensions = tuple(extensions or ())
+        if str(mode) == "inclusion" and not resolved_extensions:
+            # Fix: audit/backlog_Q-101 — ensure inclusion runs process common types
+            resolved_extensions = tuple(COMMON_EXTENSIONS)
         resolved_exclude_files = tuple(exclude_files or ())
         resolved_exclude_folders = tuple(exclude_folders or ())
 
