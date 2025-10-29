@@ -156,3 +156,43 @@ def test_cancel_extraction_emits_cancel_state(tmp_path):
     assert any("Extraction cancelled" == message for message in info_messages)
     assert state_payloads
     assert state_payloads[-1]["result"] == "cancelled"
+
+
+def test_publish_state_update_preserves_state_on_full_queue():
+    """State update must be enqueued even when the queue is saturated."""
+
+    output_queue: Queue[tuple[str, object]] = Queue(maxsize=2)
+    service = ExtractorService(output_queue=output_queue)
+
+    output_queue.put(("info", "first"))
+    output_queue.put(("info", "second"))
+
+    service._publish_state_update({"status": "finished", "result": "success"})
+
+    messages: list[tuple[str, object]] = []
+    while not output_queue.empty():
+        messages.append(output_queue.get_nowait())
+
+    assert any(level == "state" for level, _ in messages)
+    assert len(messages) == 2
+
+
+def test_publish_state_update_replaces_old_state_when_only_states_present():
+    """Newest state update should displace the oldest state entry if required."""
+
+    output_queue: Queue[tuple[str, object]] = Queue(maxsize=2)
+    service = ExtractorService(output_queue=output_queue)
+
+    output_queue.put(("state", {"result": "pending"}))
+    output_queue.put(("state", {"result": "running"}))
+
+    service._publish_state_update({"status": "finished", "result": "success"})
+
+    results: list[str] = []
+    while not output_queue.empty():
+        level, payload = output_queue.get_nowait()
+        if level == "state" and isinstance(payload, dict):
+            results.append(str(payload.get("result")))
+
+    assert "success" in results
+    assert len(results) <= 2

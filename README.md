@@ -13,6 +13,8 @@ File Extractor Pro is a GUI application to extract and process files based on sp
 - Generate detailed extraction reports in JSON format.
 - Asynchronous file processing for improved performance.
 - Error handling and logging for robustness.
+- Streams large files without a hard-coded size cap while emitting warnings
+  when configurable soft limits are exceeded.
 
 ## Installation
 

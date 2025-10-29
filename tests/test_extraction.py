@@ -144,6 +144,40 @@ def test_process_file_streams_content_without_buffering(tmp_path: Path) -> None:
     assert summary_entry["size"] == len(repeated_block)
 
 
+def test_process_file_allows_large_files_beyond_soft_cap(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Large files exceeding the configured cap should still be processed."""
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue(maxsize=4)
+    processor = FileProcessor(message_queue, max_file_size_mb=50)
+
+    large_file = tmp_path / "oversized.txt"
+    large_file.write_text("content", encoding="utf-8")
+    output_path = tmp_path / "output.txt"
+
+    real_getsize = os.path.getsize
+
+    def fake_getsize(path: str) -> int:
+        if Path(path) == large_file:
+            return 200 * 1024 * 1024
+        return real_getsize(path)
+
+    monkeypatch.setattr(os.path, "getsize", fake_getsize)
+
+    with open(output_path, "w", encoding="utf-8") as output:
+        processor.process_file(str(large_file), output)
+
+    output_text = output_path.read_text(encoding="utf-8")
+    assert "oversized.txt" in output_text
+
+    warnings = []
+    while not message_queue.empty():
+        warnings.append(message_queue.get_nowait())
+
+    assert any(level == "warning" for level, _ in warnings)
+
+
 def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -> None:
     """The extraction should traverse the filesystem only once for performance."""
 
@@ -190,7 +224,7 @@ def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -
 def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
     """Processor should drop the oldest message when the status queue is full."""
 
-    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue(maxsize=2)
+    message_queue: queue.Queue[Tuple[str, object]] = queue.Queue(maxsize=2)
     processor = FileProcessor(message_queue)
 
     message_queue.put(("info", "oldest"))
@@ -202,6 +236,26 @@ def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
     first, second = message_queue.get_nowait(), message_queue.get_nowait()
     assert first == ("info", "older")
     assert second == ("info", "new message")
+
+
+def test_enqueue_message_preserves_state_when_queue_full() -> None:
+    """State messages should survive backpressure attempts."""
+
+    message_queue: queue.Queue[Tuple[str, object]] = queue.Queue(maxsize=2)
+    processor = FileProcessor(message_queue)
+
+    message_queue.put(("state", {"result": "pending"}))
+    message_queue.put(("info", "existing"))
+
+    processor._enqueue_message("info", "new message")
+
+    drained: List[Tuple[str, object]] = []
+    while not message_queue.empty():
+        drained.append(message_queue.get_nowait())
+
+    levels = [level for level, _ in drained]
+    assert "state" in levels
+    assert any(payload == "new message" for _, payload in drained)
 
 
 def test_build_summary_and_reset_state(tmp_path: Path) -> None:

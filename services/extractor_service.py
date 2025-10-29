@@ -243,22 +243,46 @@ class ExtractorService:
     def _publish_state_update(self, payload: dict[str, str]) -> None:
         """Publish a non-blocking service state update message."""
 
+        message = ("state", payload)
         try:
-            self.output_queue.put_nowait(("state", payload))
+            self.output_queue.put_nowait(message)
             return
         except Full:
-            try:
-                self.output_queue.get_nowait()
-            except Empty:
-                logger.warning(
-                    "Failed to publish state update; queue remained full",
-                )
-                return
+            pass
 
+        # Fix: audit/backlog/Q-106 - ensure terminal state messages are retained.
+        preserved_states: list[tuple[str, object]] = []
+        evicted: tuple[str, object] | None = None
+        while evicted is None:
+            try:
+                candidate = self.output_queue.get_nowait()
+            except Empty:
+                break
+            if candidate[0] == "state":
+                preserved_states.append(candidate)
+                continue
+            evicted = candidate
+        if evicted is None and preserved_states:
+            evicted = preserved_states.pop(0)
+            logger.warning(
+                "Output queue saturated with state updates; dropping oldest state"
+            )
+        for state_message in preserved_states:
+            try:
+                self.output_queue.put_nowait(state_message)
+            except Full:
+                logger.warning(
+                    "Failed to restore preserved state message after saturation"
+                )
+        if evicted is None:
+            logger.warning(
+                "Unable to evict message despite saturation; dropping state update"
+            )
+            return
         try:
-            self.output_queue.put_nowait(("state", payload))
+            self.output_queue.put_nowait(message)
         except Full:
-            logger.warning("Dropping state update due to saturated queue")
+            logger.warning("Dropping state update due to repeated saturation")
 
 
 __all__ = [
