@@ -9,6 +9,7 @@ from ui import FileExtractorGUI
 class DummyButton:
     def __init__(self) -> None:
         self.state = "disabled"
+        self.focused = False
 
     def config(self, **kwargs) -> None:
         state = kwargs.get("state")
@@ -19,6 +20,9 @@ class DummyButton:
         if item == "state":
             return self.state
         raise KeyError(item)
+
+    def focus_set(self) -> None:
+        self.focused = True
 
 
 class DummyVar:
@@ -74,6 +78,7 @@ def test_handle_service_state_success_sets_ready_state() -> None:
     assert gui.extract_button["state"] == "normal"
     assert gui._pending_status_message is None  # type: ignore[attr-defined]
     assert gui.progress_var.get() == 0.0
+    assert gui.extract_button.focused
 
 
 def test_handle_service_state_error_sets_failure_message() -> None:
@@ -118,3 +123,16 @@ def test_register_keyboard_shortcuts_announces_accelerators() -> None:
     sequences = {seq for seq, _cb, _add in gui.master.bindings}
     assert {"<Alt-e>", "<Alt-c>", "<Alt-g>"}.issubset(sequences)
     assert gui.status_var.get().startswith("Shortcuts: Alt+E")
+
+
+def test_gather_selected_extensions_normalises_tokens() -> None:
+    gui = cast(FileExtractorGUI, object.__new__(FileExtractorGUI))
+    gui.extension_vars = {
+        ".txt": SimpleNamespace(get=lambda: True),
+        "PY": SimpleNamespace(get=lambda: False),
+    }
+    gui.custom_extensions = SimpleNamespace(get=lambda: "*.MD, data")
+
+    result = FileExtractorGUI._gather_selected_extensions(gui)
+
+    assert result == (".txt", ".md", ".data")

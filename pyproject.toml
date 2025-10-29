@@ -21,6 +21,7 @@ omit = [
     "tests/*",
     "ui.py",
     "file_extractor.py",
+    "ui_support/*",
 ]
 
 [tool.coverage.report]
