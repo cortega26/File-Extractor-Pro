@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Callable, Iterable, Protocol, Sequence
+from typing import Any, Callable, Iterable, Protocol, Sequence, cast
 
 from constants import COMMON_EXTENSIONS
 from logging_utils import configure_logging, logger
@@ -303,8 +303,10 @@ def run_cli(
             "Service factory rejected file_processor_factory override: %s", exc
         )
         service = service_factory()
-        file_processor = getattr(service, "file_processor", None)
-        if hasattr(file_processor, "configure_max_file_size"):
+        file_processor = cast(Any, getattr(service, "file_processor", None))
+        if file_processor is not None and hasattr(
+            file_processor, "configure_max_file_size"
+        ):
             file_processor.configure_max_file_size(options.max_file_size_mb)
     request = ExtractionRequest(
         folder_path=str(options.folder_path),
@@ -353,16 +355,19 @@ def run_cli(
                 rate = float(metrics.get("files_per_second", 0.0))
                 queue_depth = metrics.get("max_queue_depth", 0)
                 total_files = metrics.get("total_files", processed)
+                dropped_messages = metrics.get("dropped_messages", 0)
                 logger.info(
                     (
                         "Extraction metrics summary: processed=%s, total=%s, "
-                        "elapsed=%.2fs, rate=%.2f files/s, max_queue_depth=%s"
+                        "elapsed=%.2fs, rate=%.2f files/s, max_queue_depth=%s, "
+                        "dropped_messages=%s"
                     ),
                     processed,
                     total_files,
                     elapsed,
                     rate,
                     queue_depth,
+                    dropped_messages,
                 )
 
     if options.report_path:
@@ -370,6 +375,13 @@ def run_cli(
             service.generate_report(output_path=str(options.report_path))
         except ValueError as exc:
             logger.warning("Skipping report generation: %s", exc)
+
+    # Fix: Q-106 - fall back to the last known state payload if queue delivery failed.
+    if final_result is None:
+        last_state_getter = getattr(service, "get_last_state_payload", None)
+        if callable(last_state_getter):
+            last_state = last_state_getter() or {}
+            final_result = str(last_state.get("result")) or None
 
     if final_result == "error":
         return 1

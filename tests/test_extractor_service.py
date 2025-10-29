@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from queue import Queue
+from queue import Full, Queue
 
 import pytest
 
@@ -246,3 +246,20 @@ def test_publish_state_update_replaces_old_state_when_only_states_present():
 
     assert "success" in results
     assert len(results) <= 2
+
+
+# Fix: Q-106
+def test_publish_state_update_tracks_latest_payload_on_drop() -> None:
+    """Latest state payload should remain accessible even if enqueueing fails."""
+
+    class SaturatedQueue(Queue):
+        def put_nowait(self, item):  # type: ignore[override]
+            raise Full
+
+    output_queue: Queue[tuple[str, object]] = SaturatedQueue()
+    service = ExtractorService(output_queue=output_queue)
+
+    payload = {"status": "finished", "result": "success"}
+    service._publish_state_update(payload)
+
+    assert service.get_last_state_payload() == payload

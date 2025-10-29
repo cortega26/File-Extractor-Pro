@@ -97,8 +97,11 @@ class FileExtractorGUI:
             self.extraction_in_progress = False
             self._pending_status_message: str | None = None
             self._accelerator_callbacks: list[Callable[[tk.Event], str]] = []
+            self._progress_animation_running = False
+            self._last_progress_value: float = 0.0
 
             max_file_size_mb = int(self.config.get_typed("max_memory_mb"))
+
             # Fix: Q-105
             def _build_processor(queue, limit=max_file_size_mb) -> FileProcessor:
                 return FileProcessor(queue, max_file_size_mb=limit)
@@ -289,6 +292,9 @@ class FileExtractorGUI:
 
         self._arrange_extension_checkbuttons(columns=4)
         self._arrange_mode_buttons(columns=2)
+
+        # Fix: Q-102 - ensure the progress bar starts in determinate mode.
+        self.progress_bar.configure(mode="determinate")
 
     def setup_output_area(self) -> None:
         """Set up output text area with improved formatting."""
@@ -580,6 +586,8 @@ class FileExtractorGUI:
 
         self.output_text.delete(1.0, tk.END)
         self.progress_var.set(0)
+        self._last_progress_value = 0.0
+        self._ensure_progress_indeterminate()
         self.service.reset_state()
         self.extraction_in_progress = True
         self._pending_status_message = None
@@ -634,16 +642,48 @@ class FileExtractorGUI:
         """Update progress bar and status with error handling."""
 
         try:
-            progress = (processed_files / total_files * 100) if total_files > 0 else 0
-            self.master.after(0, lambda: self.progress_var.set(progress))
-            self.master.after(
-                0,
-                lambda: self.status_var.set(
-                    f"Processing: {processed_files}/{total_files} files"
-                ),
-            )
+
+            def apply_update() -> None:
+                try:
+                    if total_files > 0:
+                        self._ensure_progress_determinate()
+                        progress = (processed_files / total_files) * 100
+                        progress = max(self._last_progress_value, min(progress, 100.0))
+                    else:
+                        self._ensure_progress_indeterminate()
+                        progress = max(self._last_progress_value, 0.0)
+
+                    self.progress_var.set(progress)
+                    self._last_progress_value = progress
+                    self.status_var.set(
+                        f"Processing: {processed_files}/{total_files} files"
+                    )
+                except Exception as exc_inner:  # pragma: no cover - defensive logging
+                    logger.error("Error applying progress update: %s", exc_inner)
+
+            self.master.after(0, apply_update)
         except Exception as exc:
-            logger.error("Error updating progress: %s", exc)
+            logger.error("Error scheduling progress update: %s", exc)
+
+    # Fix: Q-102
+    def _ensure_progress_indeterminate(self) -> None:
+        """Switch the progress bar to indeterminate mode with animation."""
+
+        if self.progress_bar.cget("mode") != "indeterminate":
+            self.progress_bar.configure(mode="indeterminate")
+        if not self._progress_animation_running:
+            self.progress_bar.start(10)
+            self._progress_animation_running = True
+
+    # Fix: Q-102
+    def _ensure_progress_determinate(self) -> None:
+        """Ensure determinate mode is active and stop indeterminate animation."""
+
+        if self._progress_animation_running:
+            self.progress_bar.stop()
+            self._progress_animation_running = False
+        if self.progress_bar.cget("mode") != "determinate":
+            self.progress_bar.configure(mode="determinate")
 
     def check_queue(self) -> None:
         """Check message queue with improved error handling."""
@@ -991,6 +1031,8 @@ class FileExtractorGUI:
         self._pending_status_message = None
         self.status_var.set(status_message)
         self.progress_var.set(0)
+        self._last_progress_value = 0.0
+        self._ensure_progress_determinate()
 
     def cancel_extraction(self) -> None:
         """Cancel ongoing extraction with proper cleanup."""

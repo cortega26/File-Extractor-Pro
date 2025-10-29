@@ -8,6 +8,7 @@ import queue
 from pathlib import Path
 from typing import Any, List, Tuple
 
+import processor
 from constants import CHUNK_SIZE
 from file_extractor import DEFAULT_EXCLUDE, FileProcessor
 
@@ -54,7 +55,7 @@ def test_extract_files_writes_expected_output_and_queue_messages(
     assert progress_updates, "Progress callback should be invoked"
     first_processed, first_total = progress_updates[0]
     final_processed, final_total = progress_updates[-1]
-    assert first_processed == 1
+    assert first_processed == 0
     assert first_total == final_total
     assert final_processed == final_total >= 1
 
@@ -112,8 +113,8 @@ def test_extract_files_progress_denominator_remains_stable(tmp_path: Path) -> No
     first_processed, first_total = progress_updates[0]
     final_processed, final_total = progress_updates[-1]
     assert first_total == final_total == 2
-    assert first_processed == 1
-    assert first_processed < first_total
+    assert first_processed == 0
+    assert first_processed <= first_total
     assert final_processed == final_total == 2
 
 
@@ -224,7 +225,24 @@ def test_process_file_allows_large_files_beyond_soft_cap(
 
 
 # Fix: Q-105
-def test_process_file_retries_with_smaller_chunks_on_memory_error(tmp_path: Path) -> None:
+def test_file_processor_estimates_available_memory(monkeypatch) -> None:
+    """The processor should derive a soft cap from available memory when unset."""
+
+    estimated_bytes = 32 * 1024 * 1024
+    monkeypatch.setattr(
+        processor, "_estimate_available_memory_bytes", lambda: estimated_bytes
+    )
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    instance = FileProcessor(message_queue)
+
+    assert getattr(instance, "_max_file_size_bytes", None) == estimated_bytes
+
+
+# Fix: Q-105
+def test_process_file_retries_with_smaller_chunks_on_memory_error(
+    tmp_path: Path,
+) -> None:
     """Memory pressure during streaming should trigger a retry with smaller chunks."""
 
     message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
@@ -305,6 +323,7 @@ def test_extract_files_records_metrics(tmp_path: Path) -> None:
     assert metrics["elapsed_seconds"] >= 0.0
     assert metrics["files_per_second"] >= 0.0
     assert metrics["max_queue_depth"] >= 0
+    assert metrics["dropped_messages"] == 0
 
 
 def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -> None:
@@ -347,7 +366,7 @@ def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -
     assert progress_updates, "Progress callback should report at least one update"
     first_processed, first_total = progress_updates[0]
     final_processed, final_total = progress_updates[-1]
-    assert first_processed == 1
+    assert first_processed == 0
     assert first_total == final_total == 1
     assert final_processed == final_total
 
@@ -367,6 +386,7 @@ def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
     first, second = message_queue.get_nowait(), message_queue.get_nowait()
     assert first == ("info", "new message")
     assert second == ("info", "older")
+    assert processor._dropped_messages >= 1
 
 
 def test_enqueue_message_preserves_state_when_queue_full() -> None:
@@ -387,6 +407,7 @@ def test_enqueue_message_preserves_state_when_queue_full() -> None:
     assert drained[0] == ("info", "new message")
     assert drained[1][0] == "state"
     assert any(payload == "new message" for _, payload in drained)
+    assert processor._dropped_messages >= 1
 
 
 def test_enqueue_message_replaces_oldest_state_when_only_states_present() -> None:
@@ -408,7 +429,10 @@ def test_enqueue_message_replaces_oldest_state_when_only_states_present() -> Non
 
     assert len(drained) == 2
     assert first_state not in drained
-    assert any(payload.get("result") == "success" for _, payload in drained)
+    assert any(
+        isinstance(payload, dict) and payload.get("result") == "success"
+        for _, payload in drained
+    )
 
 
 # Fix: Q-106

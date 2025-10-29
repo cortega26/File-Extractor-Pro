@@ -71,9 +71,30 @@ python -m services.cli /path/to/folder
   extensions that should be skipped.
 - Append `--include-hidden` to traverse hidden files and folders.
 - Provide `--max-file-size-mb` to emit warnings for files exceeding the
-  specified soft limit while still streaming their contents.
+  specified soft limit while still streaming their contents. When omitted, the
+  processor derives a soft cap from available system memory to avoid
+  `MemoryError` regressions.
+- Adjust `--poll-interval` (seconds) and `--log-level` (`DEBUG`–`CRITICAL`) to
+  tune queue responsiveness and console verbosity.
+- Use `--report` to generate a JSON snapshot of the latest extraction summary on
+  disk.
 - Each run logs throughput metrics (files processed, elapsed time, files per
-  second) at the end of the execution to aid monitoring.
+  second, queue saturation, and dropped status messages) at the end of the
+  execution to aid monitoring.
+
+| Flag | Type | Default | Description |
+| ---- | ---- | ------- | ----------- |
+| `folder` | positional path | required | Folder to extract files from. |
+| `--mode` | choice | `inclusion` | Choose between inclusion and exclusion filtering. |
+| `--extensions` | list | varies | Extensions to include/exclude; defaults to common types in inclusion mode. |
+| `--include-hidden` | boolean | `false` | Traverse hidden files and folders. |
+| `--exclude-files` | list | `[]` | File patterns to skip during extraction. |
+| `--exclude-folders` | list | `[]` | Folder patterns to skip. |
+| `--output` | path | `extraction.txt` | Destination text file for extracted content. |
+| `--report` | path | none | Optional JSON report output location. |
+| `--max-file-size-mb` | int | auto | Soft warning threshold for large files; defaults to available memory. |
+| `--poll-interval` | float | `0.1` | Queue polling interval while monitoring extraction progress. |
+| `--log-level` | choice | `INFO` | Console logging verbosity. |
 
 ## Configuration
 

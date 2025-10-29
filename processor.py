@@ -15,6 +15,41 @@ from constants import CHUNK_SIZE, SPECIFICATION_FILES
 from logging_utils import logger
 
 
+# Fix: Q-105
+def _estimate_available_memory_bytes() -> int | None:
+    """Best-effort estimate of available address space for soft file limits."""
+
+    # Try process address space limits first (POSIX platforms only).
+    try:  # pragma: no cover - resource unavailable on Windows
+        import resource
+
+        soft_limit, _ = resource.getrlimit(resource.RLIMIT_AS)
+        if soft_limit not in (-1, resource.RLIM_INFINITY) and soft_limit > 0:
+            return int(soft_limit)
+    except (
+        ImportError,
+        AttributeError,
+        ValueError,
+    ):  # pragma: no cover - platform specific
+        pass
+
+    # Fallback to sysconf-derived physical memory estimates when available.
+    if hasattr(os, "sysconf"):
+        try:
+            page_size = int(os.sysconf("SC_PAGE_SIZE"))
+            avail_key = "SC_AVPHYS_PAGES"
+            if hasattr(os, "sysconf_names") and avail_key not in os.sysconf_names:
+                avail_key = "SC_PHYS_PAGES"
+            available_pages = int(os.sysconf(avail_key))
+            estimate = page_size * available_pages
+            if estimate > 0:
+                return int(estimate)
+        except (ValueError, OSError, TypeError, AttributeError):
+            pass
+
+    return None
+
+
 class ExtractionCancelled(RuntimeError):
     """Raised when an extraction run is cancelled mid-flight."""
 
@@ -44,13 +79,17 @@ class FileProcessor:
         self.configure_max_file_size(max_file_size_mb)
         self._max_queue_depth: int = 0
         self._last_run_metrics: Dict[str, float | int] = {}
+        self._dropped_messages: int = 0
 
     # Fix: Q-105
     def configure_max_file_size(self, max_file_size_mb: int | None) -> None:
         """Adjust the soft file size cap used for warning emissions."""
 
         if max_file_size_mb is None:
-            self._max_file_size_bytes = None
+            estimated = _estimate_available_memory_bytes()
+            self._max_file_size_bytes = (
+                estimated if estimated and estimated > 0 else None
+            )
             return
         if max_file_size_mb <= 0:
             raise ValueError("max_file_size_mb must be positive when provided")
@@ -67,7 +106,7 @@ class FileProcessor:
             self._max_queue_depth = current_depth
 
     # Fix: Q-106
-    def _enqueue_message(self, level: str, message: str) -> None:
+    def _enqueue_message(self, level: str, message: object) -> None:
         """Safely enqueue status messages without blocking the worker thread."""
 
         payload = (level, message)
@@ -96,6 +135,7 @@ class FileProcessor:
                 )
 
             drained_local.pop(drop_index)
+            self._dropped_messages += 1
             return drained_local
 
         drained_batches: list[list[tuple[str, object]]] = []
@@ -113,6 +153,7 @@ class FileProcessor:
                     logger.warning(
                         "Dropping status message after repeated saturation: %s", message
                     )
+                    self._dropped_messages += 1
                     return
                 drained_batches.append(drained)
                 continue
@@ -124,6 +165,7 @@ class FileProcessor:
                     self._record_queue_depth()
                 except Full:
                     logger.warning("Queue remained saturated while restoring messages")
+                    self._dropped_messages += 1
                     return
 
     def process_specifications(
@@ -330,6 +372,7 @@ class FileProcessor:
         self.extraction_summary.clear()
         self.processed_files.clear()
         self._cache.clear()
+        self._dropped_messages = 0
 
     def build_summary(self) -> Dict[str, Any]:
         """Return an immutable snapshot of the latest extraction summary."""
@@ -400,28 +443,38 @@ class FileProcessor:
 
             if not include_hidden:
                 mutable_dirs = [
-                    directory for directory in mutable_dirs if not directory.startswith(".")
+                    directory
+                    for directory in mutable_dirs
+                    if not directory.startswith(".")
                 ]
                 mutable_files = [
-                    file_name for file_name in mutable_files if not file_name.startswith(".")
+                    file_name
+                    for file_name in mutable_files
+                    if not file_name.startswith(".")
                 ]
 
             filtered_dirs = [
                 directory
                 for directory in mutable_dirs
-                if not any(fnmatch.fnmatch(directory, pattern) for pattern in exclude_folders)
+                if not any(
+                    fnmatch.fnmatch(directory, pattern) for pattern in exclude_folders
+                )
             ]
             filtered_files = [
                 file_name
                 for file_name in mutable_files
-                if not any(fnmatch.fnmatch(file_name, pattern) for pattern in exclude_files)
+                if not any(
+                    fnmatch.fnmatch(file_name, pattern) for pattern in exclude_files
+                )
             ]
 
             dirs[:] = filtered_dirs
 
             for file_name in filtered_files:
                 if is_cancelled and is_cancelled():
-                    raise ExtractionCancelled("Extraction cancelled while iterating files")
+                    raise ExtractionCancelled(
+                        "Extraction cancelled while iterating files"
+                    )
 
                 file_path = os.path.join(root, file_name)
                 if os.path.abspath(file_path) == output_file_abs:
@@ -466,6 +519,7 @@ class FileProcessor:
         # Fix: Q-108 - initialise instrumentation for this run.
         self._max_queue_depth = self.output_queue.qsize()
         self._last_run_metrics = {}
+        self._dropped_messages = 0
         start_time = perf_counter()
 
         processed_count = 0
@@ -495,6 +549,10 @@ class FileProcessor:
 
                 total_files = len(eligible_paths)
 
+                # Fix: Q-102 - ensure progress tracking starts from a stable baseline.
+                if progress_callback:
+                    progress_callback(0, total_files)
+
                 for file_path in eligible_paths:
                     self.process_file(
                         file_path,
@@ -521,15 +579,14 @@ class FileProcessor:
             raise
         else:
             elapsed = perf_counter() - start_time
-            files_per_second = (
-                processed_count / elapsed if elapsed > 0 else 0.0
-            )
+            files_per_second = processed_count / elapsed if elapsed > 0 else 0.0
             self._last_run_metrics = {
                 "processed_files": processed_count,
                 "elapsed_seconds": elapsed,
                 "files_per_second": files_per_second,
                 "max_queue_depth": self._max_queue_depth,
                 "total_files": total_files,
+                "dropped_messages": self._dropped_messages,
             }
 
             logger.info(

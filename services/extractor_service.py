@@ -78,6 +78,7 @@ class ExtractorService:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
+        self._latest_state_payload: dict[str, str] | None = None
 
     @property
     def file_processor(self) -> FileProcessor:
@@ -247,6 +248,7 @@ class ExtractorService:
     def _publish_state_update(self, payload: dict[str, str]) -> None:
         """Publish a non-blocking service state update message."""
 
+        self._latest_state_payload = dict(payload)
         message = ("state", payload)
         try:
             self.output_queue.put_nowait(message)
@@ -287,6 +289,14 @@ class ExtractorService:
             self.output_queue.put_nowait(message)
         except Full:
             logger.warning("Dropping state update due to repeated saturation")
+
+    # Fix: Q-106
+    def get_last_state_payload(self) -> dict[str, str] | None:
+        """Return the most recent state payload even if it could not be enqueued."""
+
+        if self._latest_state_payload is None:
+            return None
+        return dict(self._latest_state_payload)
 
 
 __all__ = [

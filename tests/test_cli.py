@@ -84,6 +84,41 @@ class ErrorService(SuccessfulService):
         return thread
 
 
+class DroppingStateService:
+    """Service double whose queue drops the terminal state message."""
+
+    def __init__(self) -> None:
+        self.output_queue: Queue[tuple[str, object]] = Queue()
+        self._last_state = {"status": "finished", "result": "error"}
+        self.file_processor = type(
+            "StubProcessor",
+            (),
+            {"last_run_metrics": {"processed_files": 0, "total_files": 0}},
+        )()
+
+    def start_extraction(
+        self,
+        *,
+        request: ExtractionRequest,
+        progress_callback,
+    ) -> FakeThread:
+        progress_callback(0, 0)
+        self.output_queue.put(("info", "Extraction complete. Processed 0 files."))
+        return FakeThread()
+
+    def is_running(self) -> bool:
+        return False
+
+    def cancel(self) -> None:
+        return None
+
+    def generate_report(self, *, output_path: str) -> str:
+        return output_path
+
+    def get_last_state_payload(self) -> dict[str, str]:
+        return dict(self._last_state)
+
+
 def test_parse_arguments_normalises_values(tmp_path: Path) -> None:
     options = parse_arguments(
         [
@@ -228,6 +263,31 @@ def test_run_cli_returns_error_on_failure(caplog, tmp_path: Path) -> None:
         logger.setLevel(original_level)
 
 
+# Fix: Q-106
+def test_run_cli_uses_last_state_payload_when_queue_drops(tmp_path: Path) -> None:
+    options = CLIOptions(
+        folder_path=tmp_path,
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file=tmp_path / "out.txt",
+        report_path=None,
+        max_file_size_mb=None,
+        poll_interval=0.0,
+        log_level="INFO",
+    )
+
+    exit_code = run_cli(
+        options,
+        service_factory=DroppingStateService,
+        configure_logger_handler=False,
+    )
+
+    assert exit_code == 1
+
+
 # Fix: Q-105
 def test_run_cli_configures_file_processor_threshold(tmp_path: Path) -> None:
     options = CLIOptions(
@@ -310,9 +370,7 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
         )
 
         assert exit_code == 0
-        assert any(
-            "Extraction metrics summary" in message for message in caplog.messages
-        )
+        assert any("dropped_messages" in message for message in caplog.messages)
     finally:
         logger.handlers[:] = original_handlers
         logger.propagate = original_propagate
