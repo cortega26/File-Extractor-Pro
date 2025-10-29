@@ -139,6 +139,7 @@ Run the required security tooling before submitting changes:
 bandit -ll -r .
 pip-audit
 gitleaks detect --redact
+python tools/security_checks.py  # Runs all scanners sequentially
 ```
 
 All three tools install via `requirements-dev.txt`. Capture and address any

@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from queue import Empty, Full, Queue
-from typing import Any, Callable, Dict, Sequence
+from typing import Any, Callable, Dict, Sequence, Tuple
 
 from constants import COMMON_EXTENSIONS
 from logging_utils import logger
@@ -66,14 +66,17 @@ class ExtractionSummary:
 class ExtractorService:
     """Manage background extraction execution and status dispatching."""
 
+    # Fix: Q-104 - propagate typed queues through the service boundary.
     def __init__(
         self,
         *,
         queue_max_size: int = 256,
-        file_processor_factory: Callable[[Queue], FileProcessor] = FileProcessor,
-        output_queue: Queue | None = None,
+        file_processor_factory: Callable[[Queue[Tuple[str, object]]], FileProcessor] = FileProcessor,
+        output_queue: Queue[Tuple[str, object]] | None = None,
     ) -> None:
-        self.output_queue = output_queue or Queue(maxsize=queue_max_size)
+        self.output_queue: Queue[Tuple[str, object]] = output_queue or Queue(
+            maxsize=queue_max_size
+        )
         self._file_processor = file_processor_factory(self.output_queue)
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()

@@ -15,6 +15,7 @@ source = [
     "logging_utils",
     "processor",
     "services",
+    "ui_support",
 ]
 omit = [
     "tests/*",
