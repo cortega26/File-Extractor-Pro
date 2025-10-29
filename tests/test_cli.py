@@ -412,6 +412,10 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
                         "elapsed_seconds": 1.5,
                         "files_per_second": 1.33,
                         "max_queue_depth": 1,
+                        "dropped_messages": 0,
+                        "skipped_files": 0,
+                        "total_files_known": True,
+                        "completed_at": "2025-01-01T00:00:00",
                     }
 
             self.file_processor = StubProcessor()
@@ -434,6 +438,7 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
         assert exit_code == 0
         assert any("dropped_messages" in message for message in caplog.messages)
         assert any("skipped=" in message for message in caplog.messages)
+        assert any("completed_at" in message for message in caplog.messages)
     finally:
         logger.handlers[:] = original_handlers
         logger.propagate = original_propagate

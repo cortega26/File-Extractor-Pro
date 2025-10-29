@@ -361,11 +361,13 @@ def run_cli(
                 total_files = metrics.get("total_files", processed)
                 dropped_messages = metrics.get("dropped_messages", 0)
                 skipped_files = metrics.get("skipped_files", 0)
+                # Fix: Q-108 - enrich CLI telemetry with completion timestamps and estimates.
+                completed_at = metrics.get("completed_at", "")
                 logger.info(
                     (
                         "Extraction metrics summary: processed=%s, total=%s, "
                         "elapsed=%.2fs, rate=%.2f files/s, max_queue_depth=%s, "
-                        "dropped_messages=%s, skipped=%s"
+                        "dropped_messages=%s, skipped=%s, completed_at=%s"
                     ),
                     processed,
                     total_files,
@@ -374,7 +376,13 @@ def run_cli(
                     queue_depth,
                     dropped_messages,
                     skipped_files,
+                    completed_at,
                 )
+                if not metrics.get("total_files_known", True):
+                    estimated_total = metrics.get("total_files_estimated", total_files)
+                    logger.info(
+                        "Total file count estimated from processed workload: %s", estimated_total
+                    )
 
     if options.report_path:
         try:

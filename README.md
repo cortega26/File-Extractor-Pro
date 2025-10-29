@@ -84,6 +84,10 @@ silent zero-output runs.
 - Each run logs throughput metrics (files processed, elapsed time, files per
   second, queue saturation, dropped status messages, and skipped files) at the
   end of the execution to aid monitoring.
+- <!-- Fix: Q-109 -->When directory enumeration falls back to an indeterminate
+  mode (for very large trees), the CLI records a final progress update with the
+  completed file count and logs a completion timestamp so automation can detect
+  when the run finished.
 - Programmatic consumers that instantiate `CLIOptions` directly inherit
   the same default extension set when running in inclusion mode, preventing
   empty extraction results.

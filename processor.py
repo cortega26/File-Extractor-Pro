@@ -144,7 +144,6 @@ class FileProcessor:
             self._dropped_messages += 1
             return drained_local
 
-        drained_batches: list[list[Tuple[str, object]]] = []
         attempts = 0
 
         while True:
@@ -160,31 +159,19 @@ class FileProcessor:
                         "Dropping status message after repeated saturation: %s",
                         message,
                     )
-                    for drained_batch in drained_batches:
-                        for restored in drained_batch:
-                            try:
-                                self.output_queue.put_nowait(restored)
-                                self._record_queue_depth()
-                            except Full:
-                                logger.warning(
-                                    "Queue remained saturated while restoring messages"
-                                )
-                                self._dropped_messages += 1
-                                break
                     self._dropped_messages += 1
                     return
-                drained_batches.append(drained)
+                for restored in drained:
+                    try:
+                        self.output_queue.put_nowait(restored)
+                        self._record_queue_depth()
+                    except Full:
+                        logger.warning(
+                            "Queue remained saturated while restoring messages"
+                        )
+                        self._dropped_messages += 1
+                        return
                 continue
-
-        for drained in drained_batches:
-            for restored in drained:
-                try:
-                    self.output_queue.put_nowait(restored)
-                    self._record_queue_depth()
-                except Full:
-                    logger.warning("Queue remained saturated while restoring messages")
-                    self._dropped_messages += 1
-                    return
 
     def process_specifications(
         self,
@@ -192,9 +179,10 @@ class FileProcessor:
         output_file: IO[str],
         *,
         is_cancelled: Callable[[], bool] | None = None,
-    ) -> None:
+    ) -> int:
         """Process specification files first with enhanced error handling."""
 
+        skipped_specs = 0
         for spec_file in SPECIFICATION_FILES:
             if is_cancelled and is_cancelled():
                 raise ExtractionCancelled("Extraction cancelled before specs processed")
@@ -203,12 +191,16 @@ class FileProcessor:
                 file_path = os.path.join(directory_path, spec_file)
                 if os.path.exists(file_path) and os.path.isfile(file_path):
                     logger.info("Processing specification file: %s", spec_file)
-                    self.process_file(
+                    # Fix: Q-105 - respect skip signals emitted from process_file.
+                    processed = self.process_file(
                         file_path,
                         output_file,
                         is_cancelled=is_cancelled,
                     )
-                    self.processed_files.add(file_path)
+                    if processed:
+                        self.processed_files.add(file_path)
+                    else:
+                        skipped_specs += 1
             except ExtractionCancelled:
                 raise
             except Exception as exc:
@@ -216,6 +208,8 @@ class FileProcessor:
                     "Error processing specification file %s: %s", spec_file, exc
                 )
                 self._enqueue_message("error", f"Error processing {spec_file}: {exc}")
+                skipped_specs += 1
+        return skipped_specs
 
     # Fix: Q-105
     def _stream_file_contents(
@@ -257,14 +251,21 @@ class FileProcessor:
 
         return sha256.hexdigest()
 
+    # Fix: Q-105
     def process_file(
         self,
         file_path: str,
         output_file: IO[str],
         *,
         is_cancelled: Callable[[], bool] | None = None,
-    ) -> None:
-        """Process individual file with improved error handling and memory management."""
+    ) -> bool:
+        """Process individual file with improved error handling and memory management.
+
+        Returns ``True`` when the file contents were streamed successfully and
+        ``False`` when the file had to be skipped after emitting error details.
+        """
+
+        processed_successfully = False
 
         can_restore_output = False
         start_position = 0
@@ -312,6 +313,7 @@ class FileProcessor:
                         chunk_size=chunk_size,
                         is_cancelled=is_cancelled,
                     )
+                    processed_successfully = True
                     break
                 except MemoryError:
                     if can_restore_output:
@@ -369,12 +371,15 @@ class FileProcessor:
                 output_file.truncate()
             logger.warning("Unicode decode error for %s: %s", file_path, exc)
             self._enqueue_message("error", f"Cannot decode file {file_path}: {exc}")
+            return False
         except Exception as exc:
             if can_restore_output:
                 output_file.seek(start_position)
                 output_file.truncate()
             logger.error("Error processing file %s: %s", file_path, exc)
             self._enqueue_message("error", f"Error processing {file_path}: {exc}")
+            return False
+        return processed_successfully
 
     @property
     def last_run_metrics(self) -> Dict[str, float | int]:
@@ -565,11 +570,12 @@ class FileProcessor:
             output_file_abs = os.path.abspath(output_file_name)
 
             with open(output_file_name, "w", encoding="utf-8") as output:
-                self.process_specifications(
+                skipped_specs = self.process_specifications(
                     folder_path,
                     output,
                     is_cancelled=is_cancelled,
                 )
+                skipped_count += skipped_specs
 
                 # Fix: Q-102 - pre-compute eligible files but fall back when memory is scarce.
                 total_files: int
@@ -616,13 +622,16 @@ class FileProcessor:
 
                 for file_path in iteration_source:
                     try:
-                        self.process_file(
+                        processed = self.process_file(
                             file_path,
                             output,
                             is_cancelled=is_cancelled,
                         )
                     except ExtractionSkipped as skipped:
                         logger.warning("%s", skipped)
+                        skipped_count += 1
+                        continue
+                    if not processed:
                         skipped_count += 1
                         continue
                     self.processed_files.add(file_path)
@@ -653,6 +662,16 @@ class FileProcessor:
             known_total = total_files if total_files >= 0 else None
             estimated_total = processed_count + skipped_count
             normalised_total = known_total if known_total is not None else estimated_total
+            # Fix: Q-102 - finalise determinate progress when totals were estimated.
+            if (
+                progress_callback
+                and known_total is None
+                and processed_count > 0
+            ):
+                try:
+                    progress_callback(processed_count, processed_count)
+                except Exception:  # pragma: no cover - defensive safeguard
+                    logger.debug("Progress callback failed to report final totals", exc_info=True)
             self._last_run_metrics = {
                 "processed_files": processed_count,
                 "elapsed_seconds": elapsed,
@@ -665,6 +684,8 @@ class FileProcessor:
             }
             if known_total is None:
                 self._last_run_metrics["total_files_estimated"] = estimated_total
+            # Fix: Q-108 - capture run completion timestamp for telemetry consumers.
+            self._last_run_metrics["completed_at"] = datetime.now().isoformat()
 
             logger.info(
                 (

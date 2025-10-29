@@ -308,21 +308,22 @@ class ExtractorService:
                 if callable(metrics_candidate):  # pragma: no cover - defensive branch
                     metrics_candidate = metrics_candidate()
                 if isinstance(metrics_candidate, dict):
-                    metrics_snapshot = {
-                        key: metrics_candidate[key]
-                        for key in (
-                            "processed_files",
-                            "total_files",
-                            "elapsed_seconds",
-                            "files_per_second",
-                            "max_queue_depth",
-                            "dropped_messages",
-                            "skipped_files",
-                            "total_files_known",
-                            "total_files_estimated",
-                        )
-                        if key in metrics_candidate
-                    }
+                        metrics_snapshot = {
+                            key: metrics_candidate[key]
+                            for key in (
+                                "processed_files",
+                                "total_files",
+                                "elapsed_seconds",
+                                "files_per_second",
+                                "max_queue_depth",
+                                "dropped_messages",
+                                "skipped_files",
+                                "total_files_known",
+                                "total_files_estimated",
+                                "completed_at",
+                            )
+                            if key in metrics_candidate
+                        }
             except Exception as exc:  # pragma: no cover - defensive guard
                 logger.debug("Unable to capture extraction metrics for state payload: %s", exc)
             else:
