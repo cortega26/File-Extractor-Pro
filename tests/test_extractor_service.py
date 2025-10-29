@@ -290,6 +290,7 @@ def test_get_last_run_metrics_returns_processor_snapshot(tmp_path: Path) -> None
     metrics = service.get_last_run_metrics()
     assert metrics is not None
     assert metrics["processed_files"] >= 1
+    assert "completed_at" in metrics
 
 
 # Fix: Q-108
@@ -311,6 +312,7 @@ def test_state_payload_includes_metrics(tmp_path: Path) -> None:
                 "skipped_files": 1,
                 "total_files_known": True,
                 "total_files_estimated": 3,
+                "completed_at": "2025-01-01T00:00:00",
             }
 
     service = ExtractorService(
@@ -347,6 +349,7 @@ def test_state_payload_includes_metrics(tmp_path: Path) -> None:
     assert metrics_payload["processed_files"] == 3
     assert metrics_payload["skipped_files"] == 1
     assert "total_files_known" in metrics_payload
+    assert "completed_at" in metrics_payload
 
 
 # Fix: Q-106

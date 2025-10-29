@@ -151,7 +151,7 @@ def test_process_file_unicode_decode_error_reported(tmp_path: Path) -> None:
     processor = FileProcessor(message_queue)
 
     with open(output_path, "w", encoding="utf-8") as output:
-        processor.process_file(str(binary_file), output)
+        processed = processor.process_file(str(binary_file), output)
 
     messages = []
     while not message_queue.empty():
@@ -161,6 +161,32 @@ def test_process_file_unicode_decode_error_reported(tmp_path: Path) -> None:
         level == "error" and "Cannot decode" in message for level, message in messages
     )
     assert output_path.read_text(encoding="utf-8") == ""
+    assert processed is False
+
+
+# Fix: Q-105
+def test_extract_files_counts_decode_errors_as_skipped(tmp_path: Path) -> None:
+    """Decode failures should contribute to the skipped files metric."""
+
+    binary_file = tmp_path / "binary.bin"
+    binary_file.write_bytes(b"\xff\xfe\x00\x00")
+
+    message_queue: queue.Queue[Tuple[str, object]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    processor.extract_files(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".bin",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    metrics = processor.last_run_metrics
+    assert metrics["processed_files"] == 0
+    assert metrics["skipped_files"] == 1
 
 
 def test_process_file_streams_content_without_buffering(tmp_path: Path) -> None:
@@ -409,7 +435,7 @@ def test_extract_files_falls_back_to_indeterminate_progress_on_memory_error(
 
     assert processor.calls == 2
     assert progress_updates[0][1] == -1
-    assert progress_updates[-1][1] == -1
+    assert progress_updates[-1] == (1, 1)
     warnings = [payload for level, payload in message_queue.queue if level == "warning"]
     assert any("indeterminate" in str(message).lower() for message in warnings)
     metrics = processor.last_run_metrics
@@ -466,8 +492,8 @@ def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
 
     assert message_queue.qsize() == 2
     first, second = message_queue.get_nowait(), message_queue.get_nowait()
-    assert first == ("info", "new message")
-    assert second == ("info", "older")
+    assert first == ("info", "older")
+    assert second == ("info", "new message")
     assert processor._dropped_messages >= 1
 
 
@@ -486,9 +512,8 @@ def test_enqueue_message_preserves_state_when_queue_full() -> None:
     while not message_queue.empty():
         drained.append(message_queue.get_nowait())
 
-    assert drained[0] == ("info", "new message")
-    assert drained[1][0] == "state"
-    assert any(payload == "new message" for _, payload in drained)
+    assert drained[0][0] == "state"
+    assert drained[1] == ("info", "new message")
     assert processor._dropped_messages >= 1
 
 
