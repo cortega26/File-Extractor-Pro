@@ -37,7 +37,17 @@ def _make_gui_stub() -> FileExtractorGUI:
     gui.extract_button = cast(Any, DummyButton())
     gui.status_var = cast(Any, DummyVar())
     gui.progress_var = cast(Any, DummyVar(0.0))
+    gui.progress_bar = cast(
+        Any,
+        SimpleNamespace(
+            cget=lambda *_args: "determinate",
+            stop=lambda: None,
+            configure=lambda **_kwargs: None,
+        ),
+    )
     gui.extraction_in_progress = True
+    gui._progress_animation_running = False  # type: ignore[attr-defined]
+    gui._last_progress_value = 0.0  # type: ignore[attr-defined]
     gui._pending_status_message = None  # type: ignore[attr-defined]
     gui.service = SimpleNamespace(cancel=lambda: None)
     return gui
@@ -85,14 +95,16 @@ def test_register_keyboard_shortcuts_announces_accelerators() -> None:
         def __init__(self) -> None:
             self.bindings: list[tuple[str, object, str | None]] = []
 
-        def bind_all(self, sequence: str, callback: object, add: str | None = None) -> None:
+        def bind_all(
+            self, sequence: str, callback: object, add: str | None = None
+        ) -> None:
             self.bindings.append((sequence, callback, add))
 
     gui = cast(FileExtractorGUI, object.__new__(FileExtractorGUI))
     gui.master = RecordingMaster()
-    gui.execute = lambda: None
-    gui.cancel_extraction = lambda: None
-    gui.generate_report = lambda: None
+    setattr(gui, "execute", lambda: None)
+    setattr(gui, "cancel_extraction", lambda: None)
+    setattr(gui, "generate_report", lambda: None)
     gui._accelerator_callbacks = []  # type: ignore[attr-defined]
     gui.status_var = cast(Any, DummyVar(""))
     gui.extraction_in_progress = False

@@ -72,3 +72,43 @@ def test_cancel_extraction_posts_queue_message(tk_root: tk.Tk) -> None:
     assert gui.progress_var.get() == 0
     assert gui.status_var.get() == "Ready"
     assert not gui.extraction_in_progress
+
+
+# Fix: Q-102
+def test_prepare_extraction_sets_indeterminate_progress(tk_root: tk.Tk) -> None:
+    from ui import FileExtractorGUI
+
+    gui = FileExtractorGUI(tk_root)
+    gui.prepare_extraction()
+
+    tk_root.update()
+    assert gui.progress_bar.cget("mode") == "indeterminate"
+    assert gui._progress_animation_running  # type: ignore[attr-defined]
+
+    gui.reset_extraction_state()
+    tk_root.update()
+    assert gui.progress_bar.cget("mode") == "determinate"
+
+
+# Fix: Q-102
+def test_update_progress_switches_to_determinate_and_monotonic(
+    tk_root: tk.Tk,
+) -> None:
+    from ui import FileExtractorGUI
+
+    gui = FileExtractorGUI(tk_root)
+    gui.prepare_extraction()
+
+    gui.update_progress(0, 5)
+    tk_root.update()
+    initial_progress = gui.progress_var.get()
+    assert gui.progress_bar.cget("mode") == "determinate"
+
+    gui.update_progress(3, 5)
+    tk_root.update()
+    after_progress = gui.progress_var.get()
+    assert after_progress >= initial_progress
+
+    gui.update_progress(2, 5)
+    tk_root.update()
+    assert gui.progress_var.get() >= after_progress
