@@ -649,15 +649,22 @@ class FileProcessor:
             elapsed = perf_counter() - start_time
             files_per_second = processed_count / elapsed if elapsed > 0 else 0.0
             self._skipped_files = skipped_count
+            # Fix: Q-108 - normalise instrumentation totals when counts are estimated.
+            known_total = total_files if total_files >= 0 else None
+            estimated_total = processed_count + skipped_count
+            normalised_total = known_total if known_total is not None else estimated_total
             self._last_run_metrics = {
                 "processed_files": processed_count,
                 "elapsed_seconds": elapsed,
                 "files_per_second": files_per_second,
                 "max_queue_depth": self._max_queue_depth,
-                "total_files": total_files,
+                "total_files": normalised_total,
                 "dropped_messages": self._dropped_messages,
                 "skipped_files": skipped_count,
+                "total_files_known": known_total is not None,
             }
+            if known_total is None:
+                self._last_run_metrics["total_files_estimated"] = estimated_total
 
             logger.info(
                 (

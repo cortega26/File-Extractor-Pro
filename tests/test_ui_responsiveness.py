@@ -125,3 +125,17 @@ def test_update_progress_indeterminate_status_message(tk_root: tk.Tk) -> None:
     tk_root.update()
 
     assert "estimating total" in gui.status_var.get().lower()
+
+
+# Fix: Q-102
+def test_update_progress_zero_total_prompts_guidance(tk_root: tk.Tk) -> None:
+    from ui import FileExtractorGUI
+
+    gui = FileExtractorGUI(tk_root)
+    gui.prepare_extraction()
+
+    gui.update_progress(0, 0)
+    tk_root.update()
+
+    message = gui.status_var.get()
+    assert "no eligible files" in message.lower()

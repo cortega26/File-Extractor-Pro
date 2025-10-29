@@ -36,6 +36,31 @@ class DummyVar:
         return self.value
 
 
+class _StatusBannerStub:
+    """Record status banner messages for assertions."""
+
+    def __init__(self) -> None:
+        self.messages: dict[str, str] = {}
+
+    def show_success(self, message: str) -> None:
+        self.messages["success"] = message
+
+    def show_error(self, message: str) -> None:
+        self.messages["error"] = message
+
+    def show_warning(self, message: str) -> None:
+        self.messages["warning"] = message
+
+    def show(self, message: str, *, severity: str = "info") -> None:
+        self.messages[severity] = message
+
+    def clear(self) -> None:
+        self.messages.clear()
+
+    def apply_palette(self, _palette: Any) -> None:
+        return None
+
+
 def _make_gui_stub() -> FileExtractorGUI:
     gui = cast(FileExtractorGUI, object.__new__(FileExtractorGUI))
     gui.extract_button = cast(Any, DummyButton())
@@ -49,10 +74,7 @@ def _make_gui_stub() -> FileExtractorGUI:
             configure=lambda **_kwargs: None,
         ),
     )
-    gui.status_banner = SimpleNamespace(
-        show_success=lambda *_args, **_kwargs: None,
-        show_error=lambda *_args, **_kwargs: None,
-    )
+    gui.status_banner = _StatusBannerStub()
     gui.extraction_in_progress = True
     gui._progress_animation_running = False  # type: ignore[attr-defined]
     gui._last_progress_value = 0.0  # type: ignore[attr-defined]
@@ -93,9 +115,35 @@ def test_handle_service_state_error_sets_failure_message() -> None:
         },
     )
 
-    assert gui._pending_status_message == "Extraction failed: boom"  # type: ignore[attr-defined]
+    expected = (
+        "Extraction failed: boom. Review the log output for troubleshooting details."
+    )
+    assert gui._pending_status_message == expected  # type: ignore[attr-defined]
+    assert gui.status_banner.messages["error"] == expected  # type: ignore[attr-defined]
+
+
+# Fix: ux_accessibility_status_guidance
+def test_handle_service_state_success_with_no_matches_prompts_user() -> None:
+    gui = _make_gui_stub()
+
+    FileExtractorGUI._handle_service_state(
+        gui,
+        {
+            "status": "finished",
+            "result": "success",
+            "metrics": {
+                "processed_files": 0,
+                "skipped_files": 0,
+            },
+        },
+    )
+
+    message = gui._pending_status_message  # type: ignore[attr-defined]
+    assert message is not None
+    assert "no files matched" in message.lower()
+    assert gui.status_banner.messages["warning"] == message  # type: ignore[attr-defined]
     FileExtractorGUI.reset_extraction_state(gui)
-    assert gui.status_var.get() == "Extraction failed: boom"
+    assert "no files matched" in gui.status_var.get().lower()
 
 
 # Fix: Q-107
