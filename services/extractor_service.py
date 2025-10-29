@@ -82,6 +82,8 @@ class ExtractorService:
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
         self._latest_state_payload: dict[str, object] | None = None
+        self._dropped_control_messages: int = 0
+        self._dropped_state_messages: int = 0
 
     @property
     def file_processor(self) -> FileProcessor:
@@ -93,6 +95,8 @@ class ExtractorService:
         """Clear processor state prior to a new extraction run."""
 
         self._file_processor.reset_state()
+        self._dropped_control_messages = 0
+        self._dropped_state_messages = 0
 
     def get_summary(self) -> ExtractionSummary:
         """Return a structured snapshot of the latest extraction results."""
@@ -207,41 +211,47 @@ class ExtractorService:
         except Full:
             pass
 
-        preserved_states: list[tuple[str, object]] = []
-        evicted: tuple[str, object] | None = None
+        drained: list[tuple[str, object]] = []
+        drop_index: int | None = None
 
-        while evicted is None:
+        while True:
             try:
                 candidate = self.output_queue.get_nowait()
             except Empty:
                 break
 
-            if candidate[0] == "state":
-                preserved_states.append(candidate)
-                continue
+            drained.append(candidate)
+            if drop_index is None and candidate[0] != "state":
+                drop_index = len(drained) - 1
 
-            evicted = candidate
-
-        if evicted is None and preserved_states:
-            evicted = preserved_states.pop(0)
+        if drop_index is None:
+            for preserved in drained:
+                try:
+                    self.output_queue.put_nowait(preserved)
+                except Full:
+                    logger.warning(
+                        "Failed to restore preserved state message after saturation"
+                    )
+                    self._dropped_control_messages += 1
+                    return
             logger.warning(
-                "Output queue saturated with state updates; dropping oldest state"
+                "Dropping %s message due to saturation of state payloads", level
             )
+            self._dropped_control_messages += 1
+            return
 
-        for state_message in preserved_states:
+        drained.pop(drop_index)
+        self._dropped_control_messages += 1
+
+        for preserved in drained:
             try:
-                self.output_queue.put_nowait(state_message)
+                self.output_queue.put_nowait(preserved)
             except Full:
                 logger.warning(
-                    "Failed to restore preserved state message after saturation"
+                    "Failed to restore preserved queue message after saturation"
                 )
-                break
-
-        if evicted is None:
-            logger.warning(
-                "Unable to enqueue %s message due to saturation; dropping payload", level
-            )
-            return
+                self._dropped_control_messages += 1
+                return
 
         try:
             self.output_queue.put_nowait(message)
@@ -249,6 +259,7 @@ class ExtractorService:
             logger.warning(
                 "Dropping %s message due to repeated saturation", level
             )
+            self._dropped_control_messages += 1
 
     def cancel(self) -> None:
         """Signal cancellation to UI consumers via status queue."""
@@ -279,6 +290,8 @@ class ExtractorService:
 
         # Fix: Q-104 - allow non-string values in state payloads for metrics.
         state_payload: dict[str, object] = {"status": "finished", "result": "success"}
+        self._dropped_control_messages = 0
+        self._dropped_state_messages = 0
         try:
             self._file_processor.extract_files(
                 folder_path,
@@ -302,7 +315,7 @@ class ExtractorService:
             state_payload["message"] = str(exc)
         finally:
             # Fix: Q-108 - attach instrumentation metrics to the terminal state payload.
-            metrics_snapshot: dict[str, float | int] | None = None
+            metrics_snapshot: dict[str, float | int | str] | None = None
             try:
                 metrics_candidate = getattr(self._file_processor, "last_run_metrics", None)
                 if callable(metrics_candidate):  # pragma: no cover - defensive branch
@@ -321,12 +334,22 @@ class ExtractorService:
                                 "total_files_known",
                                 "total_files_estimated",
                                 "completed_at",
+                                "large_file_warnings",
+                                "max_file_size_bytes",
                             )
                             if key in metrics_candidate
                         }
             except Exception as exc:  # pragma: no cover - defensive guard
                 logger.debug("Unable to capture extraction metrics for state payload: %s", exc)
             else:
+                if metrics_snapshot is None:
+                    metrics_snapshot = {}
+                metrics_snapshot.setdefault(
+                    "service_dropped_messages", self._dropped_control_messages
+                )
+                metrics_snapshot.setdefault(
+                    "service_dropped_state_messages", self._dropped_state_messages
+                )
                 if metrics_snapshot:
                     state_payload.setdefault("metrics", metrics_snapshot)
 
@@ -362,6 +385,7 @@ class ExtractorService:
             logger.warning(
                 "Output queue saturated with state updates; dropping oldest state"
             )
+            self._dropped_state_messages += 1
         for state_message in preserved_states:
             try:
                 self.output_queue.put_nowait(state_message)
@@ -369,15 +393,18 @@ class ExtractorService:
                 logger.warning(
                     "Failed to restore preserved state message after saturation"
                 )
+                self._dropped_state_messages += 1
         if evicted is None:
             logger.warning(
                 "Unable to evict message despite saturation; dropping state update"
             )
+            self._dropped_state_messages += 1
             return
         try:
             self.output_queue.put_nowait(message)
         except Full:
             logger.warning("Dropping state update due to repeated saturation")
+            self._dropped_state_messages += 1
 
     # Fix: Q-106
     def get_last_state_payload(self) -> dict[str, object] | None:
@@ -389,7 +416,7 @@ class ExtractorService:
 
 
     # Fix: Q-108
-    def get_last_run_metrics(self) -> dict[str, float | int] | None:
+    def get_last_run_metrics(self) -> dict[str, float | int | str] | None:
         """Expose the processor's most recent instrumentation snapshot."""
 
         processor = getattr(self, "_file_processor", None)
@@ -400,7 +427,14 @@ class ExtractorService:
             metrics = metrics()
         if not metrics:
             return None
-        return dict(metrics)
+        snapshot = dict(metrics)
+        snapshot.setdefault(
+            "service_dropped_messages", self._dropped_control_messages
+        )
+        snapshot.setdefault(
+            "service_dropped_state_messages", self._dropped_state_messages
+        )
+        return snapshot
 
 
 __all__ = [

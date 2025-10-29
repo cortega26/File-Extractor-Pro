@@ -83,9 +83,10 @@ class FileProcessor:
         self._max_file_size_bytes: int | None = None
         self.configure_max_file_size(max_file_size_mb)
         self._max_queue_depth: int = 0
-        self._last_run_metrics: Dict[str, float | int] = {}
+        self._last_run_metrics: Dict[str, float | int | str] = {}
         self._dropped_messages: int = 0
         self._skipped_files: int = 0
+        self._large_file_warning_count: int = 0
 
     # Fix: Q-105
     def configure_max_file_size(self, max_file_size_mb: int | None) -> None:
@@ -117,7 +118,7 @@ class FileProcessor:
 
         payload: Tuple[str, object] = (level, message)
 
-        def drain_for_capacity() -> list[tuple[str, object]]:
+        def drain_for_capacity(*, allow_state_eviction: bool) -> bool:
             drained_local: list[tuple[str, object]] = []
             while True:
                 try:
@@ -126,7 +127,7 @@ class FileProcessor:
                     break
 
             if not drained_local:
-                return []
+                return False
 
             drop_index: int | None = None
             for index, candidate in enumerate(drained_local):
@@ -135,14 +136,43 @@ class FileProcessor:
                     break
 
             if drop_index is None:
+                if not allow_state_eviction:
+                    for restored in drained_local:
+                        try:
+                            self.output_queue.put_nowait(restored)
+                        except Full:
+                            logger.warning(
+                                "Queue remained saturated while restoring preserved state messages"
+                            )
+                            self._dropped_messages += 1
+                            return False
+                        else:
+                            self._record_queue_depth()
+                    logger.debug(
+                        "Skipped dropping state messages to preserve terminal status payloads"
+                    )
+                    return False
                 drop_index = 0
-                logger.warning(
-                    "Status queue saturated with state updates only; discarding oldest state"
-                )
 
-            drained_local.pop(drop_index)
+            dropped_message = drained_local.pop(drop_index)
             self._dropped_messages += 1
-            return drained_local
+
+            for restored in drained_local:
+                try:
+                    self.output_queue.put_nowait(restored)
+                except Full:
+                    logger.warning(
+                        "Queue remained saturated while restoring drained messages"
+                    )
+                    self._dropped_messages += 1
+                    return False
+                else:
+                    self._record_queue_depth()
+
+            if dropped_message[0] == "state" and not allow_state_eviction:
+                logger.warning("Dropped a state message unexpectedly during backpressure")
+
+            return True
 
         attempts = 0
 
@@ -153,7 +183,10 @@ class FileProcessor:
                 break
             except Full:
                 attempts += 1
-                drained = drain_for_capacity()
+                allow_state_eviction = level == "state"
+                drained = drain_for_capacity(
+                    allow_state_eviction=allow_state_eviction
+                )
                 if not drained and attempts > 1:
                     logger.warning(
                         "Dropping status message after repeated saturation: %s",
@@ -161,16 +194,6 @@ class FileProcessor:
                     )
                     self._dropped_messages += 1
                     return
-                for restored in drained:
-                    try:
-                        self.output_queue.put_nowait(restored)
-                        self._record_queue_depth()
-                    except Full:
-                        logger.warning(
-                            "Queue remained saturated while restoring messages"
-                        )
-                        self._dropped_messages += 1
-                        return
                 continue
 
     def process_specifications(
@@ -294,6 +317,7 @@ class FileProcessor:
                         f"{file_path}"
                     ),
                 )
+                self._large_file_warning_count += 1
 
             normalized_path = os.path.normpath(file_path).replace(os.path.sep, "/")
             file_ext = os.path.splitext(file_path)[1]
@@ -382,7 +406,7 @@ class FileProcessor:
         return processed_successfully
 
     @property
-    def last_run_metrics(self) -> Dict[str, float | int]:
+    def last_run_metrics(self) -> Dict[str, float | int | str]:
         """Return instrumentation metrics captured during the last extraction."""
 
         return dict(self._last_run_metrics)
@@ -414,6 +438,9 @@ class FileProcessor:
         self.processed_files.clear()
         self._cache.clear()
         self._dropped_messages = 0
+        self._max_queue_depth = 0
+        self._last_run_metrics = {}
+        self._large_file_warning_count = 0
 
     def build_summary(self) -> Dict[str, Any]:
         """Return an immutable snapshot of the latest extraction summary."""
@@ -561,6 +588,7 @@ class FileProcessor:
         self._max_queue_depth = self.output_queue.qsize()
         self._last_run_metrics = {}
         self._dropped_messages = 0
+        self._large_file_warning_count = 0
         start_time = perf_counter()
 
         processed_count = 0
@@ -681,6 +709,8 @@ class FileProcessor:
                 "dropped_messages": self._dropped_messages,
                 "skipped_files": skipped_count,
                 "total_files_known": known_total is not None,
+                "large_file_warnings": self._large_file_warning_count,
+                "max_file_size_bytes": int(self._max_file_size_bytes or 0),
             }
             if known_total is None:
                 self._last_run_metrics["total_files_estimated"] = estimated_total
