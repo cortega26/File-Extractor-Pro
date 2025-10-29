@@ -9,6 +9,7 @@ from queue import Queue
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from constants import COMMON_EXTENSIONS
 from services.cli import CLIOptions, parse_arguments, run_cli
 from services.extractor_service import ExtractionRequest
 
@@ -120,6 +121,13 @@ def test_parse_arguments_normalises_values(tmp_path: Path) -> None:
     assert options.report_path and options.report_path.name == "report.json"
     assert options.poll_interval == 0.0
     assert options.log_level == "DEBUG"
+
+
+def test_parse_arguments_defaults_extensions_for_inclusion(tmp_path: Path) -> None:
+    options = parse_arguments([str(tmp_path)])
+
+    assert options.mode == "inclusion"
+    assert options.extensions == tuple(COMMON_EXTENSIONS)
 
 
 def test_run_cli_success(caplog, tmp_path: Path) -> None:

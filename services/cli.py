@@ -11,6 +11,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, Iterable, Protocol, Sequence
 
+from constants import COMMON_EXTENSIONS
 from logging_utils import configure_logging, logger
 from services.extractor_service import ExtractionRequest, ExtractorService
 
@@ -103,7 +104,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--extensions",
         nargs="*",
         default=(),
-        help="List of file extensions to include or exclude",
+        help=(
+            "List of file extensions to include or exclude. "
+            "Defaults to common types when omitted in inclusion mode."
+        ),
     )
     parser.add_argument(
         "--exclude-files",
@@ -151,6 +155,8 @@ def parse_arguments(argv: Sequence[str] | None = None) -> CLIOptions:
     args = parser.parse_args(argv)
 
     extensions = _split_csv(args.extensions)
+    if args.mode == "inclusion" and not extensions:
+        extensions = tuple(COMMON_EXTENSIONS)
     exclude_files = _split_csv(args.exclude_files)
     exclude_folders = _split_csv(args.exclude_folders)
 

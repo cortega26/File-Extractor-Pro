@@ -1,5 +1,5 @@
 ID,Severity,Status,Notes,Next Action,Last Updated
-Q-101,S1,Not Started,"CLI defaults to empty extensions so headless extractions process zero files.","Expand missing extensions to COMMON_EXTENSIONS (or wildcard) and add regression coverage.",2025-11-10
+Q-101,S1,Completed,"CLI now defaults to common extensions for inclusion runs when none are provided, preventing zero-file extractions.","Monitor CLI usage and extend default profiles if additional formats are needed.",2025-11-11
 Q-102,S1,Not Started,"Progress denominator grows with processed files causing the bar to sit at 100% immediately.","Estimate total files before starting (or switch to indeterminate mode) and emit progress with a stable total.",2025-11-10
 Q-103,S1,Not Started,"ui.py remains a ~1k-line monolith combining layout, state, theming, and service calls.","Extract presenter/controller modules and widget factories with targeted unit tests.",2025-11-10
 Q-104,S1,Not Started,"mypy --strict . fails with 62 errors across services, UI, and tests.","Annotate modules, add Tk stubs, and configure strictness tiers so type checking can gate CI.",2025-11-10
