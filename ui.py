@@ -12,6 +12,7 @@ from typing import Callable, Dict, List
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
 from logging_utils import logger
+from processor import FileProcessor
 from services import ExtractionRequest, ExtractorService
 
 STATUS_QUEUE_MAX_SIZE = 256
@@ -99,12 +100,12 @@ class FileExtractorGUI:
 
             max_file_size_mb = int(self.config.get_typed("max_memory_mb"))
             # Fix: Q-105
+            def _build_processor(queue, limit=max_file_size_mb) -> FileProcessor:
+                return FileProcessor(queue, max_file_size_mb=limit)
+
             self.service = ExtractorService(
                 queue_max_size=STATUS_QUEUE_MAX_SIZE,
-                file_processor_factory=lambda queue, limit=max_file_size_mb: FileProcessor(
-                    queue,
-                    max_file_size_mb=limit,
-                ),
+                file_processor_factory=_build_processor,
             )
             self.output_queue = self.service.output_queue
 

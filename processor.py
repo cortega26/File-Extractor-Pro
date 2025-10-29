@@ -70,48 +70,61 @@ class FileProcessor:
     def _enqueue_message(self, level: str, message: str) -> None:
         """Safely enqueue status messages without blocking the worker thread."""
 
-        drained: list[tuple[str, object]] = []
-        try:
-            self.output_queue.put_nowait((level, message))
-            self._record_queue_depth()
-            return
-        except Full:
+        payload = (level, message)
+
+        def drain_for_capacity() -> list[tuple[str, object]]:
+            drained_local: list[tuple[str, object]] = []
             while True:
                 try:
-                    drained.append(self.output_queue.get_nowait())
+                    drained_local.append(self.output_queue.get_nowait())
                 except Empty:
                     break
 
-        drop_index: int | None = None
-        for index, candidate in enumerate(drained):
-            if candidate[0] != "state":
-                drop_index = index
-                break
+            if not drained_local:
+                return []
 
-        if drop_index is None and drained:
-            drop_index = 0
-            logger.warning(
-                "Status queue saturated with state updates only; discarding oldest state"
-            )
+            drop_index: int | None = None
+            for index, candidate in enumerate(drained_local):
+                if candidate[0] != "state":
+                    drop_index = index
+                    break
 
-        if drop_index is not None:
-            drained.pop(drop_index)
+            if drop_index is None:
+                drop_index = 0
+                logger.warning(
+                    "Status queue saturated with state updates only; discarding oldest state"
+                )
 
-        for payload in drained:
+            drained_local.pop(drop_index)
+            return drained_local
+
+        drained_batches: list[list[tuple[str, object]]] = []
+        attempts = 0
+
+        while True:
             try:
                 self.output_queue.put_nowait(payload)
                 self._record_queue_depth()
+                break
             except Full:
-                logger.warning("Queue remained saturated while restoring messages")
-                return
+                attempts += 1
+                drained = drain_for_capacity()
+                if not drained and attempts > 1:
+                    logger.warning(
+                        "Dropping status message after repeated saturation: %s", message
+                    )
+                    return
+                drained_batches.append(drained)
+                continue
 
-        try:
-            self.output_queue.put_nowait((level, message))
-            self._record_queue_depth()
-        except Full:
-            logger.warning(
-                "Dropping status message after repeated saturation: %s", message
-            )
+        for drained in drained_batches:
+            for restored in drained:
+                try:
+                    self.output_queue.put_nowait(restored)
+                    self._record_queue_depth()
+                except Full:
+                    logger.warning("Queue remained saturated while restoring messages")
+                    return
 
     def process_specifications(
         self,
@@ -144,6 +157,46 @@ class FileProcessor:
                 )
                 self._enqueue_message("error", f"Error processing {spec_file}: {exc}")
 
+    # Fix: Q-105
+    def _stream_file_contents(
+        self,
+        *,
+        file_path: str,
+        output_file: IO[str],
+        normalized_path: str,
+        chunk_size: int,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> str:
+        """Stream file contents into the output handle and return the SHA256 hash."""
+
+        sha256 = hashlib.sha256()
+        header_written = False
+
+        with open(file_path, "r", encoding="utf-8") as source:
+            while True:
+                if is_cancelled and is_cancelled():
+                    raise ExtractionCancelled(
+                        "Extraction cancelled during file processing"
+                    )
+
+                chunk = source.read(chunk_size)
+                if not chunk:
+                    break
+
+                if not header_written:
+                    output_file.write(f"{normalized_path}:\n")
+                    header_written = True
+
+                sha256.update(chunk.encode("utf-8"))
+                output_file.write(chunk)
+
+        if not header_written:
+            output_file.write(f"{normalized_path}:\n")
+
+        output_file.write("\n\n\n")
+
+        return sha256.hexdigest()
+
     def process_file(
         self,
         file_path: str,
@@ -152,6 +205,8 @@ class FileProcessor:
         is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         """Process individual file with improved error handling and memory management."""
+        can_restore_output = False
+        start_position = 0
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"File not found: {file_path}")
@@ -176,67 +231,70 @@ class FileProcessor:
                         f"{file_path}"
                     ),
                 )
-            # Fix: audit/backlog/Q-105 - rely on streaming reads instead of a hard cap.
 
             normalized_path = os.path.normpath(file_path).replace(os.path.sep, "/")
-
             file_ext = os.path.splitext(file_path)[1]
-            sha256 = hashlib.sha256()
 
             can_restore_output = all(
                 hasattr(output_file, method) for method in ("tell", "seek", "truncate")
             )
-            start_position = 0
-            if can_restore_output:
-                start_position = output_file.tell()
+            start_position = output_file.tell() if can_restore_output else 0
 
-            try:
-                header_written = False
+            chunk_size = CHUNK_SIZE
 
-                with open(file_path, "r", encoding="utf-8") as source:
-                    while True:
-                        if is_cancelled and is_cancelled():
-                            raise ExtractionCancelled(
-                                "Extraction cancelled during file processing"
-                            )
+            while True:
+                try:
+                    file_hash = self._stream_file_contents(
+                        file_path=file_path,
+                        output_file=output_file,
+                        normalized_path=normalized_path,
+                        chunk_size=chunk_size,
+                        is_cancelled=is_cancelled,
+                    )
+                    break
+                except MemoryError:
+                    if can_restore_output:
+                        output_file.seek(start_position)
+                        output_file.truncate()
 
-                        chunk = source.read(CHUNK_SIZE)
-                        if not chunk:
-                            break
+                    next_chunk_size = max(1024, chunk_size // 2)
+                    if next_chunk_size == chunk_size:
+                        raise
 
-                        if not header_written:
-                            output_file.write(f"{normalized_path}:\n")
-                            header_written = True
-
-                        sha256.update(chunk.encode("utf-8"))
-                        output_file.write(chunk)
-
-                if not header_written:
-                    output_file.write(f"{normalized_path}:\n")
-
-                output_file.write("\n\n\n")
-
-            except ExtractionCancelled:
-                if can_restore_output:
-                    output_file.seek(start_position)
-                    output_file.truncate()
-                raise
-            except Exception:
-                if can_restore_output:
-                    output_file.seek(start_position)
-                    output_file.truncate()
-                raise
-
-            file_hash = sha256.hexdigest()
+                    logger.warning(
+                        "Memory pressure detected while processing %s; retrying with %s-byte chunks",
+                        file_path,
+                        next_chunk_size,
+                    )
+                    self._enqueue_message(
+                        "warning",
+                        (
+                            "Memory pressure detected while processing "
+                            f"{file_path}; retrying with {next_chunk_size}-byte chunks"
+                        ),
+                    )
+                    chunk_size = next_chunk_size
+                    continue
 
             self._update_extraction_summary(file_ext, file_path, file_size, file_hash)
 
             logger.debug("Successfully processed file: %s", file_path)
 
+        except ExtractionCancelled:
+            if can_restore_output:
+                output_file.seek(start_position)
+                output_file.truncate()
+            raise
         except (UnicodeDecodeError, UnicodeError) as exc:
+            if can_restore_output:
+                output_file.seek(start_position)
+                output_file.truncate()
             logger.warning("Unicode decode error for %s: %s", file_path, exc)
             self._enqueue_message("error", f"Cannot decode file {file_path}: {exc}")
         except Exception as exc:
+            if can_restore_output:
+                output_file.seek(start_position)
+                output_file.truncate()
             logger.error("Error processing file %s: %s", file_path, exc)
             self._enqueue_message("error", f"Error processing {file_path}: {exc}")
 
@@ -324,7 +382,14 @@ class FileProcessor:
         """Yield eligible file paths while respecting cancellation hooks."""
 
         seen_paths: Set[str] = set()
-        extensions_set = set(extensions)
+        wildcard_tokens = {"*", "*.*"}
+        # Fix: Q-101 - honour wildcard extension tokens for inclusion workflows.
+        normalized_extensions = {
+            extension.lower()
+            for extension in extensions
+            if extension not in wildcard_tokens
+        }
+        has_wildcard = any(extension in wildcard_tokens for extension in extensions)
 
         for root, dirs, files in os.walk(folder_path):
             if is_cancelled and is_cancelled():
@@ -365,11 +430,17 @@ class FileProcessor:
                     continue
 
                 file_ext = os.path.splitext(file_name)[1]
+                file_ext_lower = file_ext.lower()
                 should_process = False
                 if mode == "inclusion":
-                    should_process = file_ext in extensions_set
+                    should_process = has_wildcard or (
+                        file_ext_lower in normalized_extensions
+                    )
                 elif mode == "exclusion":
-                    should_process = file_ext not in extensions_set
+                    if has_wildcard:
+                        should_process = False
+                    else:
+                        should_process = file_ext_lower not in normalized_extensions
 
                 if not should_process:
                     continue

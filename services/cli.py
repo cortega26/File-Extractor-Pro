@@ -285,10 +285,13 @@ def run_cli(
     processor_factory: Callable[[Queue], FileProcessor] | None = None
     service_kwargs: dict[str, object] = {}
     if options.max_file_size_mb is not None:
-        processor_factory = lambda output_queue: FileProcessor(
-            output_queue,
-            max_file_size_mb=options.max_file_size_mb,
-        )
+
+        def processor_factory(output_queue: Queue) -> FileProcessor:
+            return FileProcessor(
+                output_queue,
+                max_file_size_mb=options.max_file_size_mb,
+            )
+
         service_kwargs["file_processor_factory"] = processor_factory
 
     try:
@@ -332,6 +335,35 @@ def run_cli(
     finally:
         if service.is_running():
             service.cancel()
+
+    # Fix: Q-108 - surface instrumentation metrics even if queue messages were dropped.
+    processor = getattr(service, "file_processor", None)
+    if processor is not None:
+        metrics: dict[str, float | int] | None = None
+        try:
+            metrics = getattr(processor, "last_run_metrics", None)
+            if callable(metrics):  # pragma: no cover - defensive branch
+                metrics = metrics()
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.debug("Unable to access processor metrics: %s", exc)
+        else:
+            if metrics:
+                processed = metrics.get("processed_files", 0)
+                elapsed = float(metrics.get("elapsed_seconds", 0.0))
+                rate = float(metrics.get("files_per_second", 0.0))
+                queue_depth = metrics.get("max_queue_depth", 0)
+                total_files = metrics.get("total_files", processed)
+                logger.info(
+                    (
+                        "Extraction metrics summary: processed=%s, total=%s, "
+                        "elapsed=%.2fs, rate=%.2f files/s, max_queue_depth=%s"
+                    ),
+                    processed,
+                    total_files,
+                    elapsed,
+                    rate,
+                    queue_depth,
+                )
 
     if options.report_path:
         try:

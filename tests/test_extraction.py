@@ -223,6 +223,65 @@ def test_process_file_allows_large_files_beyond_soft_cap(
     assert any(level == "warning" for level, _ in warnings)
 
 
+# Fix: Q-105
+def test_process_file_retries_with_smaller_chunks_on_memory_error(tmp_path: Path) -> None:
+    """Memory pressure during streaming should trigger a retry with smaller chunks."""
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+
+    class MemoryPressureProcessor(FileProcessor):
+        def __init__(self, output_queue: queue.Queue[Tuple[str, str]]) -> None:
+            super().__init__(output_queue)
+            self.attempts = 0
+
+        def _stream_file_contents(self, **kwargs: Any) -> str:  # type: ignore[override]
+            self.attempts += 1
+            if self.attempts == 1:
+                raise MemoryError("simulated pressure")
+            return super()._stream_file_contents(**kwargs)
+
+    processor = MemoryPressureProcessor(message_queue)
+
+    sample_file = tmp_path / "retry.txt"
+    sample_file.write_text("retry payload", encoding="utf-8")
+
+    output_path = tmp_path / "output.txt"
+    with open(output_path, "w", encoding="utf-8") as output:
+        processor.process_file(str(sample_file), output)
+
+    assert processor.attempts == 2
+    warnings = list(message_queue.queue)
+    assert any("Memory pressure detected" in payload for _, payload in warnings)
+
+
+# Fix: Q-101
+def test_iter_eligible_file_paths_honours_wildcard(tmp_path: Path) -> None:
+    """Wildcard extension tokens should include all files in inclusion mode."""
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    include_dir = tmp_path / "nested"
+    include_dir.mkdir()
+    kept_file = include_dir / "document.xyz"
+    kept_file.write_text("payload", encoding="utf-8")
+
+    output_path = tmp_path / "out.txt"
+    eligible = list(
+        processor._iter_eligible_file_paths(
+            folder_path=str(tmp_path),
+            mode="inclusion",
+            include_hidden=False,
+            extensions=("*",),
+            exclude_files=(),
+            exclude_folders=(),
+            output_file_abs=str(output_path),
+        )
+    )
+
+    assert str(kept_file) in eligible
+
+
 def test_extract_files_records_metrics(tmp_path: Path) -> None:
     """Extraction runs should expose elapsed time and throughput metrics."""
 
@@ -306,8 +365,8 @@ def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
 
     assert message_queue.qsize() == 2
     first, second = message_queue.get_nowait(), message_queue.get_nowait()
-    assert first == ("info", "older")
-    assert second == ("info", "new message")
+    assert first == ("info", "new message")
+    assert second == ("info", "older")
 
 
 def test_enqueue_message_preserves_state_when_queue_full() -> None:
@@ -325,8 +384,8 @@ def test_enqueue_message_preserves_state_when_queue_full() -> None:
     while not message_queue.empty():
         drained.append(message_queue.get_nowait())
 
-    levels = [level for level, _ in drained]
-    assert "state" in levels
+    assert drained[0] == ("info", "new message")
+    assert drained[1][0] == "state"
     assert any(payload == "new message" for _, payload in drained)
 
 
@@ -350,6 +409,36 @@ def test_enqueue_message_replaces_oldest_state_when_only_states_present() -> Non
     assert len(drained) == 2
     assert first_state not in drained
     assert any(payload.get("result") == "success" for _, payload in drained)
+
+
+# Fix: Q-106
+def test_enqueue_message_survives_concurrent_refill() -> None:
+    """Concurrent producers should not prevent the new payload from being enqueued."""
+
+    class RacingQueue(queue.Queue[Tuple[str, object]]):
+        def __init__(self) -> None:
+            super().__init__(maxsize=2)
+            self.failures = 0
+
+        def put_nowait(self, item: Tuple[str, object]) -> None:  # type: ignore[override]
+            if self.failures < 1 and item[1] == "new message":
+                self.failures += 1
+                raise queue.Full
+            return super().put_nowait(item)
+
+    racing_queue: RacingQueue = RacingQueue()
+    racing_queue.put(("info", "existing-1"))
+    racing_queue.put(("info", "existing-2"))
+
+    processor = FileProcessor(racing_queue)
+    processor._enqueue_message("info", "new message")
+
+    drained: list[Tuple[str, object]] = []
+    while not racing_queue.empty():
+        drained.append(racing_queue.get_nowait())
+
+    assert any(payload == "new message" for _, payload in drained)
+    assert len(drained) == 2
 
 
 def test_build_summary_and_reset_state(tmp_path: Path) -> None:
