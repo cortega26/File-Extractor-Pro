@@ -12,7 +12,7 @@ from queue import Empty, Queue
 from typing import Callable, Iterable, Protocol, Sequence
 
 from logging_utils import configure_logging, logger
-from services.extractor_service import ExtractorService
+from services.extractor_service import ExtractionRequest, ExtractorService
 
 
 class ThreadLike(Protocol):
@@ -33,13 +33,7 @@ class ExtractorServiceProtocol(Protocol):
     def start_extraction(
         self,
         *,
-        folder_path: str,
-        mode: str,
-        include_hidden: bool,
-        extensions: list[str],
-        exclude_files: list[str],
-        exclude_folders: list[str],
-        output_file_name: str,
+        request: ExtractionRequest,
         progress_callback: Callable[[int, int], None],
     ) -> ThreadLike:
         """Start a background extraction task."""
@@ -242,14 +236,17 @@ def run_cli(
         logger.setLevel(getattr(logging, options.log_level.upper(), logging.INFO))
 
     service = service_factory()
-    thread = service.start_extraction(
+    request = ExtractionRequest(
         folder_path=str(options.folder_path),
         mode=options.mode,
         include_hidden=options.include_hidden,
-        extensions=list(options.extensions),
-        exclude_files=list(options.exclude_files),
-        exclude_folders=list(options.exclude_folders),
+        extensions=tuple(options.extensions),
+        exclude_files=tuple(options.exclude_files),
+        exclude_folders=tuple(options.exclude_folders),
         output_file_name=str(options.output_file),
+    )
+    thread = service.start_extraction(
+        request=request,
         progress_callback=_progress_callback,
     )
 

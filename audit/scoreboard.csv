@@ -1,6 +1,6 @@
 ID,Severity,Status,Notes,Next Action,Last Updated
-Q-001,S0,Done,"Pytest suite covers extraction flow, progress, and cancellation queue messaging.",Monitor queue behaviour during async refactors.,2025-10-28
-Q-002,S1,Done,"ExtractorService API now powers a headless CLI runner for automated workflows.",Document CLI usage patterns and prioritise future service endpoints.,2025-11-08
+Q-001,S0,In Progress,"Pytest suite now asserts queue backpressure behaviour to guard saturation regressions.",Add CLI regression harness covering message draining with real queues.,2025-11-09
+Q-002,S1,In Progress,"ExtractorService accepts typed ExtractionRequest payloads to decouple UI/CLI orchestration.",Update architecture docs and migrate remaining callers to the request workflow.,2025-11-09
 Q-003,S1,Done,"Extraction worker now synchronous with cancellation event; Tkinter thread decoupled.",Monitor cancellation responsiveness under heavy filesystem loads.,2025-11-02
 Q-004,S1,Done,"Dynamic layout profiles adapt controls for compact screens and high-DPI displays.",Validate responsive layout against accessibility heuristics.,2025-11-08
 Q-005,S1,Done,Traversal now streams processing within a single os.walk pass.,Monitor progress reporting on very large directories.,2025-10-31

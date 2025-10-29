@@ -198,6 +198,11 @@ def test_enqueue_message_applies_backpressure_when_queue_full() -> None:
 
     processor._enqueue_message("info", "new message")
 
+    assert message_queue.qsize() == 2
+    first, second = message_queue.get_nowait(), message_queue.get_nowait()
+    assert first == ("info", "older")
+    assert second == ("info", "new message")
+
 
 def test_build_summary_and_reset_state(tmp_path: Path) -> None:
     """The processor should expose a structured summary snapshot and reset cleanly."""
