@@ -45,6 +45,10 @@ def _make_gui_stub() -> FileExtractorGUI:
             configure=lambda **_kwargs: None,
         ),
     )
+    gui.status_banner = SimpleNamespace(
+        show_success=lambda *_args, **_kwargs: None,
+        show_error=lambda *_args, **_kwargs: None,
+    )
     gui.extraction_in_progress = True
     gui._progress_animation_running = False  # type: ignore[attr-defined]
     gui._last_progress_value = 0.0  # type: ignore[attr-defined]

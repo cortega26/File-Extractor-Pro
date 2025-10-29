@@ -157,8 +157,20 @@ class FileProcessor:
                 drained = drain_for_capacity()
                 if not drained and attempts > 1:
                     logger.warning(
-                        "Dropping status message after repeated saturation: %s", message
+                        "Dropping status message after repeated saturation: %s",
+                        message,
                     )
+                    for drained_batch in drained_batches:
+                        for restored in drained_batch:
+                            try:
+                                self.output_queue.put_nowait(restored)
+                                self._record_queue_depth()
+                            except Full:
+                                logger.warning(
+                                    "Queue remained saturated while restoring messages"
+                                )
+                                self._dropped_messages += 1
+                                break
                     self._dropped_messages += 1
                     return
                 drained_batches.append(drained)
@@ -253,8 +265,10 @@ class FileProcessor:
         is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         """Process individual file with improved error handling and memory management."""
+
         can_restore_output = False
         start_position = 0
+
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"File not found: {file_path}")
@@ -289,7 +303,6 @@ class FileProcessor:
             start_position = output_file.tell() if can_restore_output else 0
 
             chunk_size = CHUNK_SIZE
-
             while True:
                 try:
                     file_hash = self._stream_file_contents(
@@ -336,27 +349,25 @@ class FileProcessor:
                         ),
                     )
                     chunk_size = next_chunk_size
-                    continue
 
             self._update_extraction_summary(file_ext, file_path, file_size, file_hash)
-
             logger.debug("Successfully processed file: %s", file_path)
 
-                except ExtractionCancelled:
-                    if can_restore_output:
-                        output_file.seek(start_position)
-                        output_file.truncate()
-                    raise
-                except ExtractionSkipped:
-                    if can_restore_output:
-                        output_file.seek(start_position)
-                        output_file.truncate()
-                    raise
-                except (UnicodeDecodeError, UnicodeError) as exc:
-                    if can_restore_output:
-                        output_file.seek(start_position)
-                        output_file.truncate()
-                    logger.warning("Unicode decode error for %s: %s", file_path, exc)
+        except ExtractionCancelled:
+            if can_restore_output:
+                output_file.seek(start_position)
+                output_file.truncate()
+            raise
+        except ExtractionSkipped:
+            if can_restore_output:
+                output_file.seek(start_position)
+                output_file.truncate()
+            raise
+        except (UnicodeDecodeError, UnicodeError) as exc:
+            if can_restore_output:
+                output_file.seek(start_position)
+                output_file.truncate()
+            logger.warning("Unicode decode error for %s: %s", file_path, exc)
             self._enqueue_message("error", f"Cannot decode file {file_path}: {exc}")
         except Exception as exc:
             if can_restore_output:

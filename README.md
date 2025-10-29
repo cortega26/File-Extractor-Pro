@@ -60,6 +60,9 @@ Run headless extractions via the CLI module:
 python -m services.cli /path/to/folder
 ```
 
+When `--extensions` is omitted in inclusion mode the CLI automatically processes
+a curated set of common file types (`.txt`, `.md`, `.py`, and more), preventing
+silent zero-output runs.
 - `--mode` defaults to `inclusion`. When omitted, the CLI processes files with
   a curated set of common extensions (for example `.txt`, `.md`, `.py`).
 - Extensions may be supplied with or without a leading dot. `--extensions txt md`

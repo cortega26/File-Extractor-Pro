@@ -289,3 +289,57 @@ def test_get_last_run_metrics_returns_processor_snapshot(tmp_path: Path) -> None
     metrics = service.get_last_run_metrics()
     assert metrics is not None
     assert metrics["processed_files"] >= 1
+
+
+# Fix: Q-108
+def test_state_payload_includes_metrics(tmp_path: Path) -> None:
+    """State updates should include instrumentation metrics for observers."""
+
+    output_queue: Queue[tuple[str, object]] = Queue(maxsize=4)
+
+    class MetricsProcessor(DummyFileProcessor):
+        def __init__(self, queue_obj: Queue) -> None:
+            super().__init__(queue_obj)
+            self.last_run_metrics = {
+                "processed_files": 3,
+                "total_files": 3,
+                "elapsed_seconds": 1.0,
+                "files_per_second": 3.0,
+                "max_queue_depth": 2,
+                "dropped_messages": 0,
+                "skipped_files": 1,
+            }
+
+    service = ExtractorService(
+        output_queue=output_queue,
+        file_processor_factory=MetricsProcessor,
+    )
+
+    request = ExtractionRequest(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    def noop_progress(*_args: object) -> None:
+        return None
+
+    thread = service.start_extraction(
+        request=request,
+        progress_callback=noop_progress,
+    )
+    thread.join(timeout=1)
+
+    metrics_payload = None
+    while not output_queue.empty():
+        kind, payload = output_queue.get_nowait()
+        if kind == "state" and isinstance(payload, dict):
+            metrics_payload = payload.get("metrics")
+
+    assert metrics_payload is not None
+    assert metrics_payload["processed_files"] == 3
+    assert metrics_payload["skipped_files"] == 1

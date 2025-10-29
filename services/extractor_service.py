@@ -244,6 +244,32 @@ class ExtractorService:
             state_payload["result"] = "error"
             state_payload["message"] = str(exc)
         finally:
+            # Fix: Q-108 - attach instrumentation metrics to the terminal state payload.
+            metrics_snapshot: dict[str, float | int] | None = None
+            try:
+                metrics_candidate = getattr(self._file_processor, "last_run_metrics", None)
+                if callable(metrics_candidate):  # pragma: no cover - defensive branch
+                    metrics_candidate = metrics_candidate()
+                if isinstance(metrics_candidate, dict):
+                    metrics_snapshot = {
+                        key: metrics_candidate[key]
+                        for key in (
+                            "processed_files",
+                            "total_files",
+                            "elapsed_seconds",
+                            "files_per_second",
+                            "max_queue_depth",
+                            "dropped_messages",
+                            "skipped_files",
+                        )
+                        if key in metrics_candidate
+                    }
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.debug("Unable to capture extraction metrics for state payload: %s", exc)
+            else:
+                if metrics_snapshot:
+                    state_payload.setdefault("metrics", metrics_snapshot)
+
             self._publish_state_update(state_payload)
             with self._lock:
                 self._thread = None
