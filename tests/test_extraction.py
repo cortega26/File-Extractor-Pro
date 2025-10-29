@@ -77,6 +77,46 @@ def test_extract_files_writes_expected_output_and_queue_messages(
     assert summary[str(data_file)]["hash"], "File hash should be recorded"
 
 
+# Fix: Q-102
+def test_extract_files_progress_denominator_remains_stable(tmp_path: Path) -> None:
+    """Progress updates should use a stable denominator across directories."""
+
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+
+    (first_dir / "a.txt").write_text("alpha", encoding="utf-8")
+    (second_dir / "b.txt").write_text("bravo", encoding="utf-8")
+
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    progress_updates: List[Tuple[int, int]] = []
+
+    def progress_callback(processed: int, total: int) -> None:
+        progress_updates.append((processed, total))
+
+    processor.extract_files(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=[".txt"],
+        exclude_files=list(DEFAULT_EXCLUDE),
+        exclude_folders=list(DEFAULT_EXCLUDE),
+        output_file_name=str(tmp_path / "out.txt"),
+        progress_callback=progress_callback,
+    )
+
+    assert progress_updates, "Progress callback should have been invoked"
+    first_processed, first_total = progress_updates[0]
+    final_processed, final_total = progress_updates[-1]
+    assert first_total == final_total == 2
+    assert first_processed == 1
+    assert first_processed < first_total
+    assert final_processed == final_total == 2
+
+
 def test_process_file_missing_emits_queue_error(tmp_path: Path) -> None:
     """Processing a missing file should push an error message onto the queue."""
 

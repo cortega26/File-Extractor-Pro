@@ -13,6 +13,7 @@ from typing import Callable, Iterable, Protocol, Sequence
 
 from constants import COMMON_EXTENSIONS
 from logging_utils import configure_logging, logger
+from processor import FileProcessor
 from services.extractor_service import ExtractionRequest, ExtractorService
 
 
@@ -64,6 +65,7 @@ class CLIOptions:
     exclude_folders: tuple[str, ...]
     output_file: Path
     report_path: Path | None
+    max_file_size_mb: int | None = None
     poll_interval: float = DEFAULT_POLL_INTERVAL
     log_level: str = "INFO"
 
@@ -78,6 +80,19 @@ def _split_csv(values: Iterable[str]) -> tuple[str, ...]:
             if stripped:
                 normalised.append(stripped)
     return tuple(dict.fromkeys(normalised))
+
+
+# Fix: Q-105
+def _positive_int(raw_value: str) -> int:
+    """Argparse helper that validates positive integer inputs."""
+
+    try:
+        value = int(raw_value)
+    except ValueError as exc:  # pragma: no cover - argparse handles messaging
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if value <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than zero")
+    return value
 
 
 # Fix: Q-101
@@ -148,6 +163,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional JSON report path to generate after extraction",
     )
     parser.add_argument(
+        "--max-file-size-mb",
+        type=_positive_int,
+        help=(
+            "Optional soft limit for file sizes in megabytes. "
+            "Values above the threshold emit warnings but do not abort."
+        ),
+    )
+    parser.add_argument(
         "--poll-interval",
         type=float,
         default=DEFAULT_POLL_INTERVAL,
@@ -185,6 +208,7 @@ def parse_arguments(argv: Sequence[str] | None = None) -> CLIOptions:
         exclude_folders=exclude_folders,
         output_file=args.output,
         report_path=args.report,
+        max_file_size_mb=args.max_file_size_mb,
         poll_interval=args.poll_interval,
         log_level=args.log_level,
     )
@@ -243,7 +267,7 @@ def _progress_callback(processed: int, total: int) -> None:
 def run_cli(
     options: CLIOptions,
     *,
-    service_factory: Callable[[], ExtractorServiceProtocol] = ExtractorService,
+    service_factory: Callable[..., ExtractorServiceProtocol] = ExtractorService,
     configure_logger_handler: bool = True,
 ) -> int:
     """Execute the extraction using the service layer and return an exit code."""
@@ -257,7 +281,28 @@ def run_cli(
     else:
         logger.setLevel(getattr(logging, options.log_level.upper(), logging.INFO))
 
-    service = service_factory()
+    # Fix: Q-105 - allow CLI callers to configure the soft file size cap.
+    processor_factory: Callable[[Queue], FileProcessor] | None = None
+    service_kwargs: dict[str, object] = {}
+    if options.max_file_size_mb is not None:
+        processor_factory = lambda output_queue: FileProcessor(
+            output_queue,
+            max_file_size_mb=options.max_file_size_mb,
+        )
+        service_kwargs["file_processor_factory"] = processor_factory
+
+    try:
+        service = service_factory(**service_kwargs)
+    except TypeError as exc:
+        if not service_kwargs:
+            raise
+        logger.debug(
+            "Service factory rejected file_processor_factory override: %s", exc
+        )
+        service = service_factory()
+        file_processor = getattr(service, "file_processor", None)
+        if hasattr(file_processor, "configure_max_file_size"):
+            file_processor.configure_max_file_size(options.max_file_size_mb)
     request = ExtractionRequest(
         folder_path=str(options.folder_path),
         mode=options.mode,

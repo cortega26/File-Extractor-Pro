@@ -9,7 +9,7 @@ from copy import deepcopy
 from datetime import datetime
 from queue import Empty, Full, Queue
 from time import perf_counter
-from typing import IO, Any, Callable, Dict, MutableMapping, Sequence, Set
+from typing import IO, Any, Callable, Dict, Iterable, MutableMapping, Sequence, Set
 
 from constants import CHUNK_SIZE, SPECIFICATION_FILES
 from logging_utils import logger
@@ -40,11 +40,21 @@ class FileProcessor:
         self.extraction_summary: Dict[str, Any] = {}
         self.processed_files: Set[str] = set()
         self._cache: Dict[str, Any] = {}
-        self._max_file_size_bytes = (
-            max_file_size_mb * 1024 * 1024 if max_file_size_mb else None
-        )
+        self._max_file_size_bytes: int | None = None
+        self.configure_max_file_size(max_file_size_mb)
         self._max_queue_depth: int = 0
         self._last_run_metrics: Dict[str, float | int] = {}
+
+    # Fix: Q-105
+    def configure_max_file_size(self, max_file_size_mb: int | None) -> None:
+        """Adjust the soft file size cap used for warning emissions."""
+
+        if max_file_size_mb is None:
+            self._max_file_size_bytes = None
+            return
+        if max_file_size_mb <= 0:
+            raise ValueError("max_file_size_mb must be positive when provided")
+        self._max_file_size_bytes = max_file_size_mb * 1024 * 1024
 
     def _record_queue_depth(self) -> None:
         """Track the maximum observed queue depth for instrumentation."""
@@ -298,6 +308,75 @@ class FileProcessor:
             "file_details": deepcopy(file_details),
         }
 
+    # Fix: Q-102
+    def _iter_eligible_file_paths(
+        self,
+        *,
+        folder_path: str,
+        mode: str,
+        include_hidden: bool,
+        extensions: Sequence[str],
+        exclude_files: Sequence[str],
+        exclude_folders: Sequence[str],
+        output_file_abs: str,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> Iterable[str]:
+        """Yield eligible file paths while respecting cancellation hooks."""
+
+        seen_paths: Set[str] = set()
+        extensions_set = set(extensions)
+
+        for root, dirs, files in os.walk(folder_path):
+            if is_cancelled and is_cancelled():
+                raise ExtractionCancelled("Extraction cancelled during traversal")
+
+            mutable_dirs = list(dirs)
+            mutable_files = list(files)
+
+            if not include_hidden:
+                mutable_dirs = [
+                    directory for directory in mutable_dirs if not directory.startswith(".")
+                ]
+                mutable_files = [
+                    file_name for file_name in mutable_files if not file_name.startswith(".")
+                ]
+
+            filtered_dirs = [
+                directory
+                for directory in mutable_dirs
+                if not any(fnmatch.fnmatch(directory, pattern) for pattern in exclude_folders)
+            ]
+            filtered_files = [
+                file_name
+                for file_name in mutable_files
+                if not any(fnmatch.fnmatch(file_name, pattern) for pattern in exclude_files)
+            ]
+
+            dirs[:] = filtered_dirs
+
+            for file_name in filtered_files:
+                if is_cancelled and is_cancelled():
+                    raise ExtractionCancelled("Extraction cancelled while iterating files")
+
+                file_path = os.path.join(root, file_name)
+                if os.path.abspath(file_path) == output_file_abs:
+                    continue
+                if file_path in self.processed_files or file_path in seen_paths:
+                    continue
+
+                file_ext = os.path.splitext(file_name)[1]
+                should_process = False
+                if mode == "inclusion":
+                    should_process = file_ext in extensions_set
+                elif mode == "exclusion":
+                    should_process = file_ext not in extensions_set
+
+                if not should_process:
+                    continue
+
+                seen_paths.add(file_path)
+                yield file_path
+
     def extract_files(
         self,
         folder_path: str,
@@ -319,8 +398,6 @@ class FileProcessor:
         start_time = perf_counter()
 
         processed_count = 0
-        total_files = 0
-        seen_paths: Set[str] = set()
 
         try:
             output_file_abs = os.path.abspath(output_file_name)
@@ -332,78 +409,31 @@ class FileProcessor:
                     is_cancelled=is_cancelled,
                 )
 
-                for root, dirs, files in os.walk(folder_path):
-                    if is_cancelled and is_cancelled():
-                        raise ExtractionCancelled(
-                            "Extraction cancelled during traversal"
-                        )
+                eligible_paths = list(
+                    self._iter_eligible_file_paths(
+                        folder_path=folder_path,
+                        mode=mode,
+                        include_hidden=include_hidden,
+                        extensions=extensions,
+                        exclude_files=exclude_files,
+                        exclude_folders=exclude_folders,
+                        output_file_abs=output_file_abs,
+                        is_cancelled=is_cancelled,
+                    )
+                )
 
-                    if not include_hidden:
-                        dirs[:] = [
-                            directory
-                            for directory in dirs
-                            if not directory.startswith(".")
-                        ]
-                        files = [file for file in files if not file.startswith(".")]
+                total_files = len(eligible_paths)
 
-                    dirs[:] = [
-                        directory
-                        for directory in dirs
-                        if not any(
-                            fnmatch.fnmatch(directory, pattern)
-                            for pattern in exclude_folders
-                        )
-                    ]
-
-                    files = [
-                        file
-                        for file in files
-                        if not any(
-                            fnmatch.fnmatch(file, pattern) for pattern in exclude_files
-                        )
-                    ]
-
-                    # Fix: Q-102 - determine eligible files before processing to
-                    # emit progress against a stable total.
-                    eligible_paths: list[str] = []
-                    for file in files:
-                        if is_cancelled and is_cancelled():
-                            raise ExtractionCancelled(
-                                "Extraction cancelled while iterating files"
-                            )
-
-                        file_path = os.path.join(root, file)
-                        if os.path.abspath(file_path) == output_file_abs:
-                            continue
-                        if file_path in self.processed_files or file_path in seen_paths:
-                            continue
-
-                        file_ext = os.path.splitext(file)[1]
-                        should_process = False
-                        if mode == "inclusion":
-                            should_process = file_ext in extensions
-                        elif mode == "exclusion":
-                            should_process = file_ext not in extensions
-
-                        if not should_process:
-                            continue
-
-                        seen_paths.add(file_path)
-                        eligible_paths.append(file_path)
-
-                    if eligible_paths:
-                        total_files += len(eligible_paths)
-
-                    for file_path in eligible_paths:
-                        self.process_file(
-                            file_path,
-                            output,
-                            is_cancelled=is_cancelled,
-                        )
-                        self.processed_files.add(file_path)
-                        processed_count += 1
-                        if progress_callback:
-                            progress_callback(processed_count, total_files)
+                for file_path in eligible_paths:
+                    self.process_file(
+                        file_path,
+                        output,
+                        is_cancelled=is_cancelled,
+                    )
+                    self.processed_files.add(file_path)
+                    processed_count += 1
+                    if progress_callback:
+                        progress_callback(processed_count, total_files)
 
                 self._enqueue_message(
                     "info",

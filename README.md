@@ -68,6 +68,8 @@ python -m services.cli /path/to/folder
 - In exclusion mode, omit `--extensions` to process all files or provide the
   extensions that should be skipped.
 - Append `--include-hidden` to traverse hidden files and folders.
+- Provide `--max-file-size-mb` to emit warnings for files exceeding the
+  specified soft limit while still streaming their contents.
 - Each run logs throughput metrics (files processed, elapsed time, files per
   second) at the end of the execution to aid monitoring.
 
@@ -87,6 +89,37 @@ startup to prevent invalid modes or resource limits from causing runtime errors.
 | `batch_size`     | integer | `100`        | No       | Number of files processed before UI progress updates. Must be greater than zero. |
 | `max_memory_mb`  | integer | `512`        | No       | Soft memory cap used for processing safeguards. Must be greater than zero. |
 | `recent_folders` | list    | `[]`         | No       | JSON array tracking the most recently selected folders for quick access in the Browse menu. |
+
+## Testing
+
+Install development dependencies to enable coverage and security tooling:
+
+```sh
+pip install -r requirements-dev.txt
+```
+
+Run the full suite with coverage thresholds enforced:
+
+```sh
+pytest
+```
+
+The configuration enables branch coverage and fails the run when overall coverage
+drops below 80%. Aim for ≥90% coverage on changed modules to satisfy internal
+quality targets.
+
+## Security Scans
+
+Run the required security tooling before submitting changes:
+
+```sh
+bandit -ll -r .
+pip-audit
+gitleaks detect --redact
+```
+
+All three tools install via `requirements-dev.txt`. Capture and address any
+medium- or high-severity findings before merging.
 
 ## Requirements
 

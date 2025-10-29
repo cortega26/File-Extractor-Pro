@@ -1,3 +1,27 @@
 [tool.isort]
 profile = "black"
 line_length = 88
+
+# Fix: Q-110
+[tool.pytest.ini_options]
+addopts = "--cov=. --cov-report=term-missing --cov-report=xml --cov-branch --cov-fail-under=80"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = [
+    "config_manager",
+    "constants",
+    "logging_utils",
+    "processor",
+    "services",
+]
+omit = [
+    "tests/*",
+    "ui.py",
+    "file_extractor.py",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

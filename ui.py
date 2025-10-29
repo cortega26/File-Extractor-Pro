@@ -95,9 +95,16 @@ class FileExtractorGUI:
 
             self.extraction_in_progress = False
             self._pending_status_message: str | None = None
+            self._accelerator_callbacks: list[Callable[[tk.Event], str]] = []
 
+            max_file_size_mb = int(self.config.get_typed("max_memory_mb"))
+            # Fix: Q-105
             self.service = ExtractorService(
                 queue_max_size=STATUS_QUEUE_MAX_SIZE,
+                file_processor_factory=lambda queue, limit=max_file_size_mb: FileProcessor(
+                    queue,
+                    max_file_size_mb=limit,
+                ),
             )
             self.output_queue = self.service.output_queue
 
@@ -264,14 +271,20 @@ class FileExtractorGUI:
             style="Accent.TButton",
         )
         self.extract_button.grid(row=9, column=0, pady=10, sticky=tk.W)
+        self.extract_button.configure(underline=0, takefocus=True)
 
-        ttk.Button(self.main_frame, text="Cancel", command=self.cancel_extraction).grid(
-            row=9, column=1, pady=10, sticky=tk.W
+        self.cancel_button = ttk.Button(
+            self.main_frame,
+            text="Cancel",
+            command=self.cancel_extraction,
         )
+        self.cancel_button.grid(row=9, column=1, pady=10, sticky=tk.W)
+        self.cancel_button.configure(underline=0, takefocus=True)
 
         self.setup_output_area()
         self.setup_menu_bar()
         self.setup_status_bar()
+        self._register_keyboard_shortcuts()
 
         self._arrange_extension_checkbuttons(columns=4)
         self._arrange_mode_buttons(columns=2)
@@ -291,12 +304,14 @@ class FileExtractorGUI:
             pady=5,
         )
 
-        ttk.Button(
+        self.generate_report_button = ttk.Button(
             self.main_frame,
             text="Generate Report",
             command=self.generate_report,
             style="TButton",
-        ).grid(row=11, column=0, columnspan=3, pady=10)
+        )
+        self.generate_report_button.grid(row=11, column=0, columnspan=3, pady=10)
+        self.generate_report_button.configure(underline=0, takefocus=True)
 
     def setup_menu_bar(self) -> None:
         """Set up application menu bar."""
@@ -324,6 +339,42 @@ class FileExtractorGUI:
             style="Status.TLabel",
         )
         self.status_bar.grid(row=1, column=0, sticky=tk.W + tk.E)
+
+    # Fix: Q-107
+    def _register_keyboard_shortcuts(self) -> None:
+        """Bind Alt-based accelerators and surface their availability."""
+
+        shortcut_actions: dict[str, Callable[[], None]] = {
+            "<Alt-e>": self.execute,
+            "<Alt-E>": self.execute,
+            "<Alt-c>": self.cancel_extraction,
+            "<Alt-C>": self.cancel_extraction,
+            "<Alt-g>": self.generate_report,
+            "<Alt-G>": self.generate_report,
+        }
+
+        for sequence, action in shortcut_actions.items():
+            callback = self._create_shortcut_handler(action)
+            self._accelerator_callbacks.append(callback)
+            self.master.bind_all(sequence, callback, add="+")
+
+        if not self.status_var.get():
+            self.status_var.set(
+                "Shortcuts: Alt+E Extract, Alt+C Cancel, Alt+G Generate Report"
+            )
+
+    def _create_shortcut_handler(
+        self, action: Callable[[], None]
+    ) -> Callable[[tk.Event], str]:
+        """Wrap action callbacks so they can be bound as Tk event handlers."""
+
+        def handler(event: tk.Event) -> str:  # type: ignore[valid-type]
+            if action is self.execute and self.extraction_in_progress:
+                return "break"
+            action()
+            return "break"
+
+        return handler
 
     def _configure_responsiveness(self) -> None:
         """Configure geometry managers for responsive resizing."""

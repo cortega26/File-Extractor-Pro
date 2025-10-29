@@ -1,0 +1,8 @@
+# Fix: Q-110
+# Development-time tooling dependencies.
+pytest-cov>=4.1.0
+
+# Fix: testing_ci_S2
+bandit[toml]>=1.7.8
+pip-audit>=2.7.2
+gitleaks>=8.18.0

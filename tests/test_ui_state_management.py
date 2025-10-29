@@ -77,3 +77,28 @@ def test_handle_service_state_error_sets_failure_message() -> None:
     assert gui._pending_status_message == "Extraction failed: boom"  # type: ignore[attr-defined]
     FileExtractorGUI.reset_extraction_state(gui)
     assert gui.status_var.get() == "Extraction failed: boom"
+
+
+# Fix: Q-107
+def test_register_keyboard_shortcuts_announces_accelerators() -> None:
+    class RecordingMaster:
+        def __init__(self) -> None:
+            self.bindings: list[tuple[str, object, str | None]] = []
+
+        def bind_all(self, sequence: str, callback: object, add: str | None = None) -> None:
+            self.bindings.append((sequence, callback, add))
+
+    gui = cast(FileExtractorGUI, object.__new__(FileExtractorGUI))
+    gui.master = RecordingMaster()
+    gui.execute = lambda: None
+    gui.cancel_extraction = lambda: None
+    gui.generate_report = lambda: None
+    gui._accelerator_callbacks = []  # type: ignore[attr-defined]
+    gui.status_var = cast(Any, DummyVar(""))
+    gui.extraction_in_progress = False
+
+    FileExtractorGUI._register_keyboard_shortcuts(gui)
+
+    sequences = {seq for seq, _cb, _add in gui.master.bindings}
+    assert {"<Alt-e>", "<Alt-c>", "<Alt-g>"}.issubset(sequences)
+    assert gui.status_var.get().startswith("Shortcuts: Alt+E")
