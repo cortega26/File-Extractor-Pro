@@ -90,6 +90,8 @@ class FileExtractorGUI:
 
         try:
             self.config = Config()
+            # Initialize accelerator callbacks before UI setup registers shortcuts.
+            self._accelerator_callbacks: list[Callable[[tk.Event], str]] = []
             self.setup_variables()
             self.setup_ui_components()
             self.theme_manager = ThemeManager(
@@ -109,7 +111,6 @@ class FileExtractorGUI:
 
             self.extraction_in_progress = False
             self._pending_status_message: str | None = None
-            self._accelerator_callbacks: list[Callable[[tk.Event], str]] = []
             self._progress_animation_running = False
             self._last_progress_value: float = 0.0
 
