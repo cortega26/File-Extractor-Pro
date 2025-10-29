@@ -50,6 +50,20 @@ File Extractor Pro is a GUI application to extract and process files based on sp
 
 4. Generate and view extraction reports.
 
+### Command-line usage
+
+Run headless extractions via the CLI module:
+
+```sh
+python -m services.cli /path/to/folder
+```
+
+- `--mode` defaults to `inclusion`. When omitted, the CLI processes files with
+  a curated set of common extensions (for example `.txt`, `.md`, `.py`).
+- Pass explicit extensions to override the defaults: `--extensions txt md pdf`.
+- In exclusion mode, omit `--extensions` to process all files or provide the
+  extensions that should be skipped.
+
 ## Configuration
 
 The application persists user preferences to `config.ini`. Values are validated at
