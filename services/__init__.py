@@ -3,10 +3,15 @@
 from .cli import CLIOptions, build_parser
 from .cli import main as cli_main
 from .cli import parse_arguments, run_cli
-from .extractor_service import ExtractionSummary, ExtractorService
+from .extractor_service import (
+    ExtractionRequest,
+    ExtractionSummary,
+    ExtractorService,
+)
 
 __all__ = [
     "CLIOptions",
+    "ExtractionRequest",
     "ExtractorService",
     "ExtractionSummary",
     "build_parser",

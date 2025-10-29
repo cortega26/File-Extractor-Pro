@@ -9,7 +9,7 @@ from queue import Queue
 import pytest
 
 from processor import ExtractionCancelled
-from services.extractor_service import ExtractorService
+from services.extractor_service import ExtractionRequest, ExtractorService
 
 
 class DummyFileProcessor:
@@ -35,14 +35,18 @@ def test_start_extraction_runs_worker(tmp_path):
         output_queue=Queue(maxsize=4),
     )
 
-    thread = service.start_extraction(
+    request = ExtractionRequest(
         folder_path=str(tmp_path),
         mode="inclusion",
         include_hidden=False,
-        extensions=[],
-        exclude_files=[],
-        exclude_folders=[],
+        extensions=(),
+        exclude_files=(),
+        exclude_folders=(),
         output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    thread = service.start_extraction(
+        request=request,
         progress_callback=progress_callback,
     )
     thread.join(timeout=1)
@@ -75,26 +79,24 @@ def test_start_extraction_raises_when_running(tmp_path):
         return None
 
     service = ExtractorService(file_processor_factory=BlockingFileProcessor)
-    service.start_extraction(
+    request = ExtractionRequest(
         folder_path=str(tmp_path),
         mode="inclusion",
         include_hidden=False,
-        extensions=[],
-        exclude_files=[],
-        exclude_folders=[],
+        extensions=(),
+        exclude_files=(),
+        exclude_folders=(),
         output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    service.start_extraction(
+        request=request,
         progress_callback=noop_progress,
     )
 
     with pytest.raises(RuntimeError):
         service.start_extraction(
-            folder_path=str(tmp_path),
-            mode="inclusion",
-            include_hidden=False,
-            extensions=[],
-            exclude_files=[],
-            exclude_folders=[],
-            output_file_name=str(tmp_path / "out.txt"),
+            request=request,
             progress_callback=noop_progress,
         )
 
@@ -120,14 +122,18 @@ def test_cancel_extraction_emits_cancel_state(tmp_path):
         output_queue=Queue(maxsize=4),
     )
 
-    thread = service.start_extraction(
+    request = ExtractionRequest(
         folder_path=str(tmp_path),
         mode="inclusion",
         include_hidden=False,
-        extensions=[],
-        exclude_files=[],
-        exclude_folders=[],
+        extensions=(),
+        exclude_files=(),
+        exclude_folders=(),
         output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    thread = service.start_extraction(
+        request=request,
         progress_callback=noop_progress,
     )
 

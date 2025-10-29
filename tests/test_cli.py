@@ -10,6 +10,7 @@ from queue import Queue
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.cli import CLIOptions, parse_arguments, run_cli
+from services.extractor_service import ExtractionRequest
 
 logger = logging.getLogger("file_extractor")
 
@@ -43,23 +44,18 @@ class SuccessfulService:
     def start_extraction(
         self,
         *,
-        folder_path: str,
-        mode: str,
-        include_hidden: bool,
-        extensions: list[str],
-        exclude_files: list[str],
-        exclude_folders: list[str],
-        output_file_name: str,
+        request: ExtractionRequest,
         progress_callback,
     ) -> FakeThread:
+        extensions = list(request.extensions)
         self.received_arguments = {
-            "folder_path": folder_path,
-            "mode": mode,
-            "include_hidden": include_hidden,
+            "folder_path": request.folder_path,
+            "mode": request.mode,
+            "include_hidden": request.include_hidden,
             "extensions": extensions,
-            "exclude_files": exclude_files,
-            "exclude_folders": exclude_folders,
-            "output_file_name": output_file_name,
+            "exclude_files": list(request.exclude_files),
+            "exclude_folders": list(request.exclude_folders),
+            "output_file_name": request.output_file_name,
         }
         progress_callback(1, max(1, len(extensions)))
         self.output_queue.put(("info", "Extraction complete. Processed 1 files."))

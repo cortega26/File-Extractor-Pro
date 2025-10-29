@@ -8,12 +8,12 @@ can quickly see what has been addressed and what remains.
 - **Next Action** — concrete step to move the item forward.
 
 ## Must Have (Severity S0–S1)
-- **Q-001 (S0 · Testing)** — Status: *Done*
-  - Notes: Pytest suite now covers extraction flow, progress reporting, and queue cancellation messaging.
-  - Next Action: Monitor queue behaviours during future async refactors.
-- **Q-002 (S1 · Architecture)** — Status: *Done*
-  - Notes: `ExtractorService` now powers a reusable headless CLI, enabling automation without Tkinter dependencies.
-  - Next Action: Document CLI workflows and identify additional service endpoints for automation.
+- **Q-001 (S0 · Testing)** — Status: *In Progress*
+  - Notes: Pytest suite now exercises queue backpressure semantics to prevent saturation regressions.
+  - Next Action: Add CLI-driven regression harness that drains real queues during smoke tests.
+- **Q-002 (S1 · Architecture)** — Status: *In Progress*
+  - Notes: `ExtractorService` accepts a typed `ExtractionRequest`, easing orchestration reuse across UI and CLI surfaces.
+  - Next Action: Update architecture documentation and migrate remaining callers to the request workflow.
 - **Q-003 (S1 · Performance/Concurrency)** — Status: *Done*
   - Notes: Extraction now runs synchronously with a cancellation event, avoiding Tkinter event loop coupling.
   - Next Action: Monitor cancellation responsiveness under heavy filesystem loads.

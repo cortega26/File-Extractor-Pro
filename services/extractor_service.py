@@ -16,6 +16,32 @@ ProgressCallback = Callable[[int, int], None]
 
 
 @dataclass(frozen=True)
+class ExtractionRequest:
+    """Immutable representation of extraction parameters."""
+
+    folder_path: str
+    mode: str
+    include_hidden: bool
+    extensions: tuple[str, ...]
+    exclude_files: tuple[str, ...]
+    exclude_folders: tuple[str, ...]
+    output_file_name: str
+
+    def as_kwargs(self) -> Dict[str, Any]:
+        """Convert the request into keyword arguments for execution."""
+
+        return {
+            "folder_path": self.folder_path,
+            "mode": self.mode,
+            "include_hidden": self.include_hidden,
+            "extensions": self.extensions,
+            "exclude_files": self.exclude_files,
+            "exclude_folders": self.exclude_folders,
+            "output_file_name": self.output_file_name,
+        }
+
+
+@dataclass(frozen=True)
 class ExtractionSummary:
     """Typed representation of a completed extraction summary."""
 
@@ -90,16 +116,50 @@ class ExtractorService:
 
     def start_extraction(
         self,
-        folder_path: str,
-        mode: str,
-        include_hidden: bool,
-        extensions: Sequence[str],
-        exclude_files: Sequence[str],
-        exclude_folders: Sequence[str],
-        output_file_name: str,
+        *,
+        request: ExtractionRequest | None = None,
+        folder_path: str | None = None,
+        mode: str | None = None,
+        include_hidden: bool | None = None,
+        extensions: Sequence[str] | None = None,
+        exclude_files: Sequence[str] | None = None,
+        exclude_folders: Sequence[str] | None = None,
+        output_file_name: str | None = None,
         progress_callback: ProgressCallback,
     ) -> threading.Thread:
         """Start a managed background extraction worker."""
+
+        if request is not None:
+            request_kwargs = request.as_kwargs()
+            folder_path = request_kwargs["folder_path"]
+            mode = request_kwargs["mode"]
+            include_hidden = request_kwargs["include_hidden"]
+            extensions = request_kwargs["extensions"]
+            exclude_files = request_kwargs["exclude_files"]
+            exclude_folders = request_kwargs["exclude_folders"]
+            output_file_name = request_kwargs["output_file_name"]
+
+        if progress_callback is None:
+            raise ValueError("progress_callback must be provided")
+
+        required_params = {
+            "folder_path": folder_path,
+            "mode": mode,
+            "include_hidden": include_hidden,
+            "extensions": extensions,
+            "exclude_files": exclude_files,
+            "exclude_folders": exclude_folders,
+            "output_file_name": output_file_name,
+        }
+        missing = [name for name, value in required_params.items() if value is None]
+        if missing:
+            raise ValueError(
+                "Missing extraction parameters: " + ", ".join(sorted(missing))
+            )
+
+        resolved_extensions = tuple(extensions or ())
+        resolved_exclude_files = tuple(exclude_files or ())
+        resolved_exclude_folders = tuple(exclude_folders or ())
 
         with self._lock:
             if self.is_running():
@@ -109,13 +169,13 @@ class ExtractorService:
             self._thread = threading.Thread(
                 target=self._run_extraction,
                 args=(
-                    folder_path,
-                    mode,
-                    include_hidden,
-                    extensions,
-                    exclude_files,
-                    exclude_folders,
-                    output_file_name,
+                    str(folder_path),
+                    str(mode),
+                    bool(include_hidden),
+                    resolved_extensions,
+                    resolved_exclude_files,
+                    resolved_exclude_folders,
+                    str(output_file_name),
                     progress_callback,
                 ),
                 daemon=True,
@@ -201,4 +261,9 @@ class ExtractorService:
             logger.warning("Dropping state update due to saturated queue")
 
 
-__all__ = ["ExtractorService", "ExtractionSummary", "ProgressCallback"]
+__all__ = [
+    "ExtractionRequest",
+    "ExtractorService",
+    "ExtractionSummary",
+    "ProgressCallback",
+]

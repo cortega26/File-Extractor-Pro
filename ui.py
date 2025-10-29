@@ -12,7 +12,7 @@ from typing import Callable, Dict, List
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
 from logging_utils import logger
-from services import ExtractorService
+from services import ExtractionRequest, ExtractorService
 
 STATUS_QUEUE_MAX_SIZE = 256
 QUEUE_IDLE_POLL_MS = 80
@@ -560,16 +560,20 @@ class FileExtractorGUI:
             if folder.strip()
         ]
 
+        request = ExtractionRequest(
+            folder_path=folder_path,
+            mode=mode,
+            include_hidden=include_hidden,
+            extensions=tuple(extensions),
+            exclude_files=tuple(exclude_files),
+            exclude_folders=tuple(exclude_folders),
+            output_file_name=output_file_name,
+        )
+
         try:
             self.service.start_extraction(
-                folder_path,
-                mode,
-                include_hidden,
-                extensions,
-                exclude_files,
-                exclude_folders,
-                output_file_name,
-                self.update_progress,
+                request=request,
+                progress_callback=self.update_progress,
             )
         finally:
             self.master.after(QUEUE_ACTIVE_POLL_MS, self.check_queue)
