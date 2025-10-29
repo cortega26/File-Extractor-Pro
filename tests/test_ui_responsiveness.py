@@ -112,3 +112,16 @@ def test_update_progress_switches_to_determinate_and_monotonic(
     gui.update_progress(2, 5)
     tk_root.update()
     assert gui.progress_var.get() >= after_progress
+
+
+# Fix: Q-102
+def test_update_progress_indeterminate_status_message(tk_root: tk.Tk) -> None:
+    from ui import FileExtractorGUI
+
+    gui = FileExtractorGUI(tk_root)
+    gui.prepare_extraction()
+
+    gui.update_progress(1, -1)
+    tk_root.update()
+
+    assert "estimating total" in gui.status_var.get().lower()

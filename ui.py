@@ -708,15 +708,20 @@ class FileExtractorGUI:
                         self._ensure_progress_determinate()
                         progress = (processed_files / total_files) * 100
                         progress = max(self._last_progress_value, min(progress, 100.0))
+                        status_message = (
+                            f"Processing: {processed_files}/{total_files} files"
+                        )
                     else:
                         self._ensure_progress_indeterminate()
                         progress = max(self._last_progress_value, 0.0)
+                        # Fix: Q-102 - clarify indeterminate progress messaging for users.
+                        status_message = (
+                            f"Processing: {processed_files} files (estimating total)"
+                        )
 
                     self.progress_var.set(progress)
                     self._last_progress_value = progress
-                    self.status_var.set(
-                        f"Processing: {processed_files}/{total_files} files"
-                    )
+                    self.status_var.set(status_message)
                 except Exception as exc_inner:  # pragma: no cover - defensive logging
                     logger.error("Error applying progress update: %s", exc_inner)
 

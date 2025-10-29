@@ -14,7 +14,10 @@ from ui_support import StatusBanner, ThemeManager, ThemeTargets
 def fixture_tk_root() -> tk.Tk:
     """Create a Tk root for widget tests and ensure cleanup."""
 
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        pytest.skip(f"Tk not available: {exc}")
     root.withdraw()
     yield root
     root.destroy()
