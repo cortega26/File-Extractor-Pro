@@ -10,17 +10,15 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING, Callable, Dict, List
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
+    from ui_support import KeyboardManager as KeyboardManagerType
     from ui_support import StatusBanner as StatusBannerType
     from ui_support import ThemeManager as ThemeManagerType
     from ui_support import ThemeTargets as ThemeTargetsType
 else:
+    KeyboardManagerType = object  # type: ignore[assignment]
     StatusBannerType = object  # type: ignore[assignment]
     ThemeManagerType = object  # type: ignore[assignment]
     ThemeTargetsType = object  # type: ignore[assignment]
-
-StatusBanner: type | None = None
-ThemeManager: type | None = None
-ThemeTargets: type | None = None
 
 from config_manager import Config
 from constants import COMMON_EXTENSIONS
@@ -28,6 +26,11 @@ from logging_utils import logger
 from processor import FileProcessor
 from services import ExtractionRequest, ExtractorService
 from services.extension_utils import normalise_extension_tokens
+
+StatusBanner: type | None = None
+ThemeManager: type | None = None
+ThemeTargets: type | None = None
+KeyboardManager: type | None = None
 
 STATUS_QUEUE_MAX_SIZE = 256
 QUEUE_IDLE_POLL_MS = 80
@@ -101,8 +104,9 @@ class FileExtractorGUI:
         self.style = ttk.Style(self.master)
 
         try:
-            global StatusBanner, ThemeManager, ThemeTargets
+            global StatusBanner, ThemeManager, ThemeTargets, KeyboardManager
             from ui_support import (
+                KeyboardManager as _KeyboardManager,
                 StatusBanner as _StatusBanner,
                 ThemeManager as _ThemeManager,
                 ThemeTargets as _ThemeTargets,
@@ -111,9 +115,9 @@ class FileExtractorGUI:
             StatusBanner = _StatusBanner
             ThemeManager = _ThemeManager
             ThemeTargets = _ThemeTargets
+            KeyboardManager = _KeyboardManager
             self.config = Config()
-            # Initialize accelerator callbacks before UI setup registers shortcuts.
-            self._accelerator_callbacks: list[Callable[[tk.Event], str]] = []
+            self.keyboard_manager: KeyboardManagerType = KeyboardManager(self.master)
             self.setup_variables()
             self.setup_ui_components()
             self.theme_manager = ThemeManager(
@@ -311,6 +315,7 @@ class FileExtractorGUI:
         self.setup_menu_bar()
         self.setup_status_bar()
         self._register_keyboard_shortcuts()
+        self._configure_focus_management()
 
         self._arrange_extension_checkbuttons(columns=4)
         self._arrange_mode_buttons(columns=2)
@@ -441,15 +446,35 @@ class FileExtractorGUI:
             "<Alt-G>": self.generate_report,
         }
 
+        handlers: dict[str, Callable[[tk.Event], str]] = {}
         for sequence, action in shortcut_actions.items():
-            callback = self._create_shortcut_handler(action)
-            self._accelerator_callbacks.append(callback)
-            self.master.bind_all(sequence, callback, add="+")
+            handlers[sequence] = self._create_shortcut_handler(action)
+
+        self.keyboard_manager.register_shortcuts(handlers)
 
         if not self.status_var.get():
             self.status_var.set(
                 "Shortcuts: Alt+E Extract, Alt+C Cancel, Alt+G Generate Report"
             )
+
+    # Fix: Q-107
+    def _configure_focus_management(self) -> None:
+        """Prioritise focus for primary action controls."""
+
+        preferred = [
+            self.folder_entry,
+            self.extract_button,
+            self.cancel_button,
+            self.generate_report_button,
+        ]
+        skip = [
+            self.status_bar,
+            self.status_banner,
+        ]
+        self.keyboard_manager.configure_focus_ring(
+            preferred_order=preferred,
+            skip=skip,
+        )
 
     def _create_shortcut_handler(
         self, action: Callable[[], None]
