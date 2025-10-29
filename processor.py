@@ -54,6 +54,10 @@ class ExtractionCancelled(RuntimeError):
     """Raised when an extraction run is cancelled mid-flight."""
 
 
+class ExtractionSkipped(RuntimeError):
+    """Raised when a file must be skipped for safety reasons."""
+
+
 class FileProcessor:
     """Enhanced file processor with improved error handling and performance."""
 
@@ -81,6 +85,7 @@ class FileProcessor:
         self._max_queue_depth: int = 0
         self._last_run_metrics: Dict[str, float | int] = {}
         self._dropped_messages: int = 0
+        self._skipped_files: int = 0
 
     # Fix: Q-105
     def configure_max_file_size(self, max_file_size_mb: int | None) -> None:
@@ -302,7 +307,21 @@ class FileProcessor:
 
                     next_chunk_size = max(1024, chunk_size // 2)
                     if next_chunk_size == chunk_size:
-                        raise
+                        # Fix: Q-105 - skip files that consistently exhaust memory safeguards.
+                        logger.error(
+                            "Aborting processing for %s after repeated memory errors",
+                            file_path,
+                        )
+                        self._enqueue_message(
+                            "error",
+                            (
+                                "Skipped file due to repeated memory pressure: "
+                                f"{file_path}"
+                            ),
+                        )
+                        raise ExtractionSkipped(
+                            f"Skipped {file_path} after repeated memory pressure"
+                        )
 
                     logger.warning(
                         "Memory pressure detected while processing %s; retrying with %s-byte chunks",
@@ -323,16 +342,21 @@ class FileProcessor:
 
             logger.debug("Successfully processed file: %s", file_path)
 
-        except ExtractionCancelled:
-            if can_restore_output:
-                output_file.seek(start_position)
-                output_file.truncate()
-            raise
-        except (UnicodeDecodeError, UnicodeError) as exc:
-            if can_restore_output:
-                output_file.seek(start_position)
-                output_file.truncate()
-            logger.warning("Unicode decode error for %s: %s", file_path, exc)
+                except ExtractionCancelled:
+                    if can_restore_output:
+                        output_file.seek(start_position)
+                        output_file.truncate()
+                    raise
+                except ExtractionSkipped:
+                    if can_restore_output:
+                        output_file.seek(start_position)
+                        output_file.truncate()
+                    raise
+                except (UnicodeDecodeError, UnicodeError) as exc:
+                    if can_restore_output:
+                        output_file.seek(start_position)
+                        output_file.truncate()
+                    logger.warning("Unicode decode error for %s: %s", file_path, exc)
             self._enqueue_message("error", f"Cannot decode file {file_path}: {exc}")
         except Exception as exc:
             if can_restore_output:
@@ -524,6 +548,7 @@ class FileProcessor:
         start_time = perf_counter()
 
         processed_count = 0
+        skipped_count = 0
 
         try:
             output_file_abs = os.path.abspath(output_file_name)
@@ -535,8 +560,33 @@ class FileProcessor:
                     is_cancelled=is_cancelled,
                 )
 
-                eligible_paths = list(
-                    self._iter_eligible_file_paths(
+                # Fix: Q-102 - pre-compute eligible files but fall back when memory is scarce.
+                total_files: int
+                iteration_source: Iterable[str]
+                try:
+                    eligible_paths = list(
+                        self._iter_eligible_file_paths(
+                            folder_path=folder_path,
+                            mode=mode,
+                            include_hidden=include_hidden,
+                            extensions=extensions,
+                            exclude_files=exclude_files,
+                            exclude_folders=exclude_folders,
+                            output_file_abs=output_file_abs,
+                            is_cancelled=is_cancelled,
+                        )
+                    )
+                except (MemoryError, OverflowError) as exc:
+                    logger.warning(
+                        "Falling back to streaming progress estimation due to: %s",
+                        exc,
+                    )
+                    self._enqueue_message(
+                        "warning",
+                        "Large directory detected; progress will be indeterminate",
+                    )
+                    total_files = -1
+                    iteration_source = self._iter_eligible_file_paths(
                         folder_path=folder_path,
                         mode=mode,
                         include_hidden=include_hidden,
@@ -546,32 +596,38 @@ class FileProcessor:
                         output_file_abs=output_file_abs,
                         is_cancelled=is_cancelled,
                     )
-                )
+                else:
+                    total_files = len(eligible_paths)
+                    iteration_source = eligible_paths
 
-                total_files = len(eligible_paths)
-
-                # Fix: Q-102 - ensure progress tracking starts from a stable baseline.
                 if progress_callback:
                     progress_callback(0, total_files)
 
-                for file_path in eligible_paths:
-                    self.process_file(
-                        file_path,
-                        output,
-                        is_cancelled=is_cancelled,
-                    )
+                for file_path in iteration_source:
+                    try:
+                        self.process_file(
+                            file_path,
+                            output,
+                            is_cancelled=is_cancelled,
+                        )
+                    except ExtractionSkipped as skipped:
+                        logger.warning("%s", skipped)
+                        skipped_count += 1
+                        continue
                     self.processed_files.add(file_path)
                     processed_count += 1
                     if progress_callback:
                         progress_callback(processed_count, total_files)
 
-                self._enqueue_message(
-                    "info",
-                    (
-                        f"Extraction complete. Processed {processed_count} files. "
-                        f"Results written to {output_file_name}."
-                    ),
+                completion_message = (
+                    f"Extraction complete. Processed {processed_count} files. "
+                    f"Results written to {output_file_name}."
                 )
+                if skipped_count:
+                    completion_message += (
+                        f" Skipped {skipped_count} files due to safeguards."
+                    )
+                self._enqueue_message("info", completion_message)
 
         except Exception as exc:
             error_msg = f"Error during extraction: {exc}"
@@ -581,6 +637,7 @@ class FileProcessor:
         else:
             elapsed = perf_counter() - start_time
             files_per_second = processed_count / elapsed if elapsed > 0 else 0.0
+            self._skipped_files = skipped_count
             self._last_run_metrics = {
                 "processed_files": processed_count,
                 "elapsed_seconds": elapsed,
@@ -588,17 +645,19 @@ class FileProcessor:
                 "max_queue_depth": self._max_queue_depth,
                 "total_files": total_files,
                 "dropped_messages": self._dropped_messages,
+                "skipped_files": skipped_count,
             }
 
             logger.info(
                 (
                     "Extraction metrics - processed: %s, elapsed: %.2fs, "
-                    "rate: %.2f files/s, max queue depth: %s"
+                    "rate: %.2f files/s, max queue depth: %s, skipped: %s"
                 ),
                 processed_count,
                 elapsed,
                 files_per_second,
                 self._max_queue_depth,
+                skipped_count,
             )
 
             self._enqueue_message(
@@ -607,9 +666,10 @@ class FileProcessor:
                     "Extraction metrics: "
                     f"processed={processed_count}, elapsed={elapsed:.2f}s, "
                     f"rate={files_per_second:.2f} files/s, "
-                    f"max_queue_depth={self._max_queue_depth}"
+                    f"max_queue_depth={self._max_queue_depth}, "
+                    f"skipped={skipped_count}"
                 ),
             )
 
 
-__all__ = ["ExtractionCancelled", "FileProcessor"]
+__all__ = ["ExtractionCancelled", "ExtractionSkipped", "FileProcessor"]

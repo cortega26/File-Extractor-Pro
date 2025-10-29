@@ -8,7 +8,7 @@ from queue import Full, Queue
 
 import pytest
 
-from constants import COMMON_EXTENSIONS
+from constants import COMMON_EXTENSIONS, DEFAULT_EXCLUDE
 from processor import ExtractionCancelled
 from services.extractor_service import ExtractionRequest, ExtractorService
 
@@ -263,3 +263,29 @@ def test_publish_state_update_tracks_latest_payload_on_drop() -> None:
     service._publish_state_update(payload)
 
     assert service.get_last_state_payload() == payload
+
+
+# Fix: Q-108
+def test_get_last_run_metrics_returns_processor_snapshot(tmp_path: Path) -> None:
+    """Services should expose processor instrumentation data."""
+
+    output_queue: Queue[tuple[str, object]] = Queue()
+    service = ExtractorService(output_queue=output_queue)
+
+    data_file = tmp_path / "metric.txt"
+    data_file.write_text("payload", encoding="utf-8")
+
+    processor = service.file_processor
+    processor.extract_files(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=tuple(DEFAULT_EXCLUDE),
+        exclude_folders=tuple(DEFAULT_EXCLUDE),
+        output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    metrics = service.get_last_run_metrics()
+    assert metrics is not None
+    assert metrics["processed_files"] >= 1

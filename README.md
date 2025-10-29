@@ -79,8 +79,11 @@ python -m services.cli /path/to/folder
 - Use `--report` to generate a JSON snapshot of the latest extraction summary on
   disk.
 - Each run logs throughput metrics (files processed, elapsed time, files per
-  second, queue saturation, and dropped status messages) at the end of the
-  execution to aid monitoring.
+  second, queue saturation, dropped status messages, and skipped files) at the
+  end of the execution to aid monitoring.
+- Programmatic consumers that instantiate `CLIOptions` directly inherit
+  the same default extension set when running in inclusion mode, preventing
+  empty extraction results.
 
 | Flag | Type | Default | Description |
 | ---- | ---- | ------- | ----------- |
