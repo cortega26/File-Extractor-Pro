@@ -118,6 +118,39 @@ def test_extract_files_progress_denominator_remains_stable(tmp_path: Path) -> No
     assert final_processed == final_total == 2
 
 
+# Fix: Q-102
+def test_extract_files_progress_updates_when_files_skipped(tmp_path: Path) -> None:
+    """Skipped files should still advance the reported progress."""
+
+    data_file = tmp_path / "bad.txt"
+    data_file.write_bytes(b"\xff\xfe\x00")
+
+    output_file = tmp_path / "out.txt"
+    message_queue: queue.Queue[Tuple[str, str]] = queue.Queue()
+    processor = FileProcessor(message_queue)
+
+    progress_updates: List[Tuple[int, int]] = []
+
+    def progress_callback(processed: int, total: int) -> None:
+        progress_updates.append((processed, total))
+
+    processor.extract_files(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=[".txt"],
+        exclude_files=list(DEFAULT_EXCLUDE),
+        exclude_folders=list(DEFAULT_EXCLUDE),
+        output_file_name=str(output_file),
+        progress_callback=progress_callback,
+    )
+
+    assert progress_updates, "Progress callback should be invoked for skipped files"
+    final_processed, final_total = progress_updates[-1]
+    assert final_processed == final_total == 1
+    assert processor.last_run_metrics["skipped_files"] == 1
+
+
 def test_process_file_missing_emits_queue_error(tmp_path: Path) -> None:
     """Processing a missing file should push an error message onto the queue."""
 
@@ -353,6 +386,8 @@ def test_extract_files_records_metrics(tmp_path: Path) -> None:
     assert metrics["max_queue_depth"] >= 0
     assert metrics["dropped_messages"] == 0
     assert metrics["skipped_files"] == 0
+    assert "max_file_size_megabytes" in metrics
+    assert metrics["max_file_size_megabytes"] >= 0
 
 
 def test_extract_files_runs_single_directory_walk(monkeypatch, tmp_path: Path) -> None:

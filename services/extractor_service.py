@@ -97,6 +97,14 @@ class ExtractorService:
         self._file_processor.reset_state()
         self._dropped_control_messages = 0
         self._dropped_state_messages = 0
+        # Fix: Q-106 - discard stale terminal payloads and drain residual messages.
+        self._latest_state_payload = None
+        while True:
+            try:
+                self.output_queue.get_nowait()
+            except Empty:
+                break
+
 
     def get_summary(self) -> ExtractionSummary:
         """Return a structured snapshot of the latest extraction results."""
@@ -177,6 +185,8 @@ class ExtractorService:
             if self.is_running():
                 raise RuntimeError("Extraction already in progress")
 
+            # Fix: Q-106 - always reset internal state before launching a worker.
+            self.reset_state()
             self._cancel_event.clear()
             self._thread = threading.Thread(
                 target=self._run_extraction,
@@ -425,16 +435,18 @@ class ExtractorService:
         metrics = getattr(processor, "last_run_metrics", None)
         if callable(metrics):
             metrics = metrics()
-        if not metrics:
-            return None
-        snapshot = dict(metrics)
+        snapshot: dict[str, float | int | str] = dict(metrics or {})
         snapshot.setdefault(
             "service_dropped_messages", self._dropped_control_messages
         )
         snapshot.setdefault(
             "service_dropped_state_messages", self._dropped_state_messages
         )
-        return snapshot
+        # Fix: Q-108 - surface drop metrics even when the processor snapshot is empty.
+        return snapshot if snapshot else {
+            "service_dropped_messages": self._dropped_control_messages,
+            "service_dropped_state_messages": self._dropped_state_messages,
+        }
 
 
 __all__ = [

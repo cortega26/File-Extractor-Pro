@@ -252,7 +252,11 @@ def _log_queue_messages(messages: Iterable[tuple[str, object]]) -> str | None:
 def _progress_callback(processed: int, total: int) -> None:
     """Default progress callback used by the CLI."""
 
-    if total <= 0:
+    if total == 0:
+        # Fix: Q-102 - clarify messaging when no files match current filters.
+        logger.info("No eligible files matched yet (%s processed)", processed)
+        return
+    if total < 0:
         # Fix: Q-102 - provide context when totals are still being estimated.
         logger.info("Processed %s files (estimating total workload)", processed)
         return
@@ -384,6 +388,9 @@ def run_cli(
         skipped_files = int(metrics.get("skipped_files", 0))
         large_file_warnings = int(metrics.get("large_file_warnings", 0))
         max_file_size_bytes = int(metrics.get("max_file_size_bytes", 0))
+        max_file_size_megabytes = float(
+            metrics.get("max_file_size_megabytes", max_file_size_bytes / (1024 * 1024))
+        )
         service_dropped = int(metrics.get("service_dropped_messages", 0))
         service_state_dropped = int(
             metrics.get("service_dropped_state_messages", 0)
@@ -402,6 +409,7 @@ def run_cli(
             "skipped_files": skipped_files,
             "large_file_warnings": large_file_warnings,
             "max_file_size_bytes": max_file_size_bytes,
+            "max_file_size_megabytes": round(max_file_size_megabytes, 3),
             "completed_at": completed_at,
         }
         logger.info("Extraction metrics summary: %s", metrics_payload)

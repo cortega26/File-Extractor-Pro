@@ -440,6 +440,8 @@ class FileProcessor:
         self._dropped_messages = 0
         self._max_queue_depth = 0
         self._last_run_metrics = {}
+        # Fix: Q-108 - reset skipped-file counters between runs for accurate metrics.
+        self._skipped_files = 0
         self._large_file_warning_count = 0
 
     def build_summary(self) -> Dict[str, Any]:
@@ -658,9 +660,17 @@ class FileProcessor:
                     except ExtractionSkipped as skipped:
                         logger.warning("%s", skipped)
                         skipped_count += 1
+                        if progress_callback:
+                            # Fix: Q-102 - advance progress when files are skipped.
+                            attempts = processed_count + skipped_count
+                            progress_callback(attempts, total_files)
                         continue
                     if not processed:
                         skipped_count += 1
+                        if progress_callback:
+                            # Fix: Q-102 - ensure skipped files still advance progress.
+                            attempts = processed_count + skipped_count
+                            progress_callback(attempts, total_files)
                         continue
                     self.processed_files.add(file_path)
                     processed_count += 1
@@ -694,10 +704,11 @@ class FileProcessor:
             if (
                 progress_callback
                 and known_total is None
-                and processed_count > 0
+                and (processed_count or skipped_count)
             ):
                 try:
-                    progress_callback(processed_count, processed_count)
+                    attempts = processed_count + skipped_count
+                    progress_callback(attempts, attempts)
                 except Exception:  # pragma: no cover - defensive safeguard
                     logger.debug("Progress callback failed to report final totals", exc_info=True)
             self._last_run_metrics = {
@@ -711,6 +722,10 @@ class FileProcessor:
                 "total_files_known": known_total is not None,
                 "large_file_warnings": self._large_file_warning_count,
                 "max_file_size_bytes": int(self._max_file_size_bytes or 0),
+                # Fix: Q-105 - expose large file guard thresholds in human-friendly units.
+                "max_file_size_megabytes": round(
+                    (self._max_file_size_bytes or 0) / (1024 * 1024), 3
+                ),
             }
             if known_total is None:
                 self._last_run_metrics["total_files_estimated"] = estimated_total
