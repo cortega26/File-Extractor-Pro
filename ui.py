@@ -112,6 +112,7 @@ class FileExtractorGUI:
 
         try:
             global StatusBanner, ThemeManager, ThemeTargets, KeyboardManager
+            global QueueDispatcher, ShortcutHintManager
             from ui_support import (
                 KeyboardManager as _KeyboardManager,
                 QueueDispatcher as _QueueDispatcher,
@@ -775,8 +776,9 @@ class FileExtractorGUI:
                 try:
                     if total_files == 0:
                         self._ensure_progress_determinate()
-                        progress = max(self._last_progress_value, 0.0)
                         # Fix: Q-102 - surface actionable guidance when nothing matches.
+                        # Fix: Q-102 - reset progress to zero when no files are eligible.
+                        progress = 0.0
                         status_message = (
                             "No eligible files matched the current filters"
                         )

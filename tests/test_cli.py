@@ -182,6 +182,22 @@ def test_parse_arguments_handles_glob_patterns(tmp_path: Path) -> None:
     assert options.extensions == (".py", ".readme")
 
 
+# Fix: Q-101
+def test_parse_arguments_merges_repeated_extension_flags(tmp_path: Path) -> None:
+    options = parse_arguments(
+        [
+            str(tmp_path),
+            "--extensions",
+            "txt",
+            "--extensions",
+            "md",
+            "py",
+        ]
+    )
+
+    assert options.extensions == (".txt", ".md", ".py")
+
+
 def test_progress_callback_clamps_percentage(caplog) -> None:
     caplog.set_level(logging.INFO, logger="file_extractor")
 
@@ -508,6 +524,80 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
         assert "large_file_warnings" in summary_text
         assert "max_file_size_bytes" in summary_text
         assert "max_file_size_megabytes" in summary_text
+    finally:
+        logger.handlers[:] = original_handlers
+        logger.propagate = original_propagate
+        logger.setLevel(original_level)
+
+
+# Fix: Q-105
+# Fix: Q-108
+def test_run_cli_metrics_handles_missing_size_metrics(caplog, tmp_path: Path) -> None:
+    options = CLIOptions(
+        folder_path=tmp_path,
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file=tmp_path / "out.txt",
+        report_path=None,
+        max_file_size_mb=None,
+        poll_interval=0.0,
+        log_level="INFO",
+    )
+
+    class MissingSizeMetricsService(SuccessfulService):
+        def __init__(self) -> None:
+            super().__init__()
+
+            class StubProcessor:
+                def __init__(self) -> None:
+                    self.last_run_metrics = {
+                        "processed_files": 1,
+                        "total_files": 1,
+                        "elapsed_seconds": 0.5,
+                        "files_per_second": 2.0,
+                        "max_queue_depth": 1,
+                        "dropped_messages": 0,
+                        "skipped_files": 0,
+                        "total_files_known": True,
+                        "completed_at": "2025-01-01T00:00:00",
+                        "large_file_warnings": 0,
+                        "max_file_size_bytes": None,
+                        "max_file_size_megabytes": None,
+                    }
+
+            self.file_processor = StubProcessor()
+
+        def get_last_run_metrics(self) -> dict[str, float | int | str | None]:
+            return dict(self.file_processor.last_run_metrics)
+
+    original_handlers = list(logger.handlers)
+    original_propagate = logger.propagate
+    original_level = logger.level
+
+    caplog.set_level(logging.INFO, logger="file_extractor")
+    logger.handlers.clear()
+    logger.propagate = True
+
+    try:
+        exit_code = run_cli(
+            options,
+            service_factory=MissingSizeMetricsService,
+            configure_logger_handler=False,
+        )
+
+        assert exit_code == 0
+        summary_messages = [
+            message
+            for message in caplog.messages
+            if "Extraction metrics summary" in message
+        ]
+        assert summary_messages, "Expected metrics summary to be logged"
+        joined = " ".join(summary_messages)
+        assert "max_file_size_bytes" in joined
+        assert "max_file_size_megabytes" in joined
     finally:
         logger.handlers[:] = original_handlers
         logger.propagate = original_propagate

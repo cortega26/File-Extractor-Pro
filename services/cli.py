@@ -71,11 +71,21 @@ class CLIOptions:
     log_level: str = "INFO"
 
 
-def _split_csv(values: Iterable[str]) -> tuple[str, ...]:
+# Fix: Q-101 - support nested sequences from repeated --extensions flags.
+def _split_csv(values: Iterable[Iterable[str] | str]) -> tuple[str, ...]:
     """Normalise comma-separated values into a tuple of strings."""
 
     normalised: list[str] = []
-    for value in values:
+
+    def _iter_tokens(raw: Iterable[Iterable[str] | str]) -> Iterable[str]:
+        for candidate in raw:
+            if isinstance(candidate, str):
+                yield candidate
+                continue
+            for nested in candidate:
+                yield str(nested)
+
+    for value in _iter_tokens(values):
         for part in value.split(","):
             stripped = part.strip()
             if stripped:
@@ -126,7 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--extensions",
         nargs="*",
-        default=(),
+        action="append",
+        default=None,
         help=(
             "List of file extensions to include or exclude. "
             "Defaults to common types when omitted in inclusion mode."
@@ -187,7 +198,7 @@ def parse_arguments(argv: Sequence[str] | None = None) -> CLIOptions:
 
     mode = str(args.mode).lower()
 
-    raw_extensions = _split_csv(args.extensions)
+    raw_extensions = _split_csv(args.extensions or ())
     extensions = _normalise_extensions(raw_extensions)
     if mode == "inclusion" and not extensions:
         extensions = tuple(COMMON_EXTENSIONS)
@@ -387,10 +398,38 @@ def run_cli(
         dropped_messages = int(metrics.get("dropped_messages", 0))
         skipped_files = int(metrics.get("skipped_files", 0))
         large_file_warnings = int(metrics.get("large_file_warnings", 0))
-        max_file_size_bytes = int(metrics.get("max_file_size_bytes", 0))
-        max_file_size_megabytes = float(
-            metrics.get("max_file_size_megabytes", max_file_size_bytes / (1024 * 1024))
-        )
+        # Fix: Q-105 - guard against ``None`` when size metrics are absent.
+        raw_max_bytes = metrics.get("max_file_size_bytes")
+        try:
+            max_file_size_bytes = int(raw_max_bytes) if raw_max_bytes else 0
+        except (TypeError, ValueError):
+            max_file_size_bytes = 0
+        # Fix: Q-108 - coerce megabyte metrics safely when missing.
+        raw_max_megabytes = metrics.get("max_file_size_megabytes")
+        max_file_size_megabytes: float
+        if raw_max_megabytes in (None, ""):
+            max_file_size_megabytes = (
+                max_file_size_bytes / (1024 * 1024)
+                if max_file_size_bytes
+                else 0.0
+            )
+        elif isinstance(raw_max_megabytes, (int, float)):
+            max_file_size_megabytes = float(raw_max_megabytes)
+        elif isinstance(raw_max_megabytes, str):
+            try:
+                max_file_size_megabytes = float(raw_max_megabytes)
+            except ValueError:
+                max_file_size_megabytes = (
+                    max_file_size_bytes / (1024 * 1024)
+                    if max_file_size_bytes
+                    else 0.0
+                )
+        else:
+            max_file_size_megabytes = (
+                max_file_size_bytes / (1024 * 1024)
+                if max_file_size_bytes
+                else 0.0
+            )
         service_dropped = int(metrics.get("service_dropped_messages", 0))
         service_state_dropped = int(
             metrics.get("service_dropped_state_messages", 0)

@@ -134,8 +134,12 @@ def test_update_progress_zero_total_prompts_guidance(tk_root: tk.Tk) -> None:
     gui = FileExtractorGUI(tk_root)
     gui.prepare_extraction()
 
+    gui.progress_var.set(75.0)
+    gui._last_progress_value = 75.0
+
     gui.update_progress(0, 0)
     tk_root.update()
 
     message = gui.status_var.get()
     assert "no eligible files" in message.lower()
+    assert gui.progress_var.get() == 0.0
