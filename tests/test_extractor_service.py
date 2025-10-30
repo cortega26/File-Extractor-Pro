@@ -25,6 +25,9 @@ class DummyFileProcessor:
         progress_callback(1, 1)
         self.called.set()
 
+    def reset_state(self) -> None:
+        return None
+
 
 class RecordingExtensionsProcessor(DummyFileProcessor):
     """Capture the extensions passed into extract_files for assertions."""
@@ -266,6 +269,64 @@ def test_publish_state_update_tracks_latest_payload_on_drop() -> None:
     assert service.get_last_state_payload() == payload
 
 
+# Fix: Q-106
+def test_reset_state_clears_queue_and_latest_payload() -> None:
+    """Resetting the service should drop residual messages and cached state."""
+
+    output_queue: Queue[tuple[str, object]] = Queue()
+    service = ExtractorService(output_queue=output_queue)
+
+    output_queue.put(("info", "stale message"))
+    service._latest_state_payload = {"status": "finished", "result": "success"}
+
+    service.reset_state()
+
+    assert service.get_last_state_payload() is None
+    assert output_queue.empty()
+
+
+# Fix: Q-106
+def test_start_extraction_invokes_reset_state(tmp_path: Path) -> None:
+    """Launching a new extraction should reset processor and queues first."""
+
+    class RecorderProcessor(DummyFileProcessor):
+        def __init__(self, queue_obj: Queue) -> None:
+            super().__init__(queue_obj)
+            self.reset_calls = 0
+
+        def reset_state(self) -> None:  # type: ignore[override]
+            self.reset_calls += 1
+
+        def extract_files(self, *args, **kwargs):  # type: ignore[override]
+            return None
+
+    recorded_queue: Queue[tuple[str, object]] = Queue()
+    recorded_queue.put(("state", {"status": "finished", "result": "error"}))
+
+    service = ExtractorService(
+        output_queue=recorded_queue,
+        file_processor_factory=RecorderProcessor,
+    )
+
+    request = ExtractionRequest(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=False,
+        extensions=(".txt",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    thread = service.start_extraction(request=request, progress_callback=lambda *_: None)
+    thread.join()
+
+    processor = service.file_processor
+    assert isinstance(processor, RecorderProcessor)
+    assert processor.reset_calls >= 1
+    assert recorded_queue.qsize() <= 1
+
+
 # Fix: Q-108
 def test_get_last_run_metrics_returns_processor_snapshot(tmp_path: Path) -> None:
     """Services should expose processor instrumentation data."""
@@ -292,6 +353,22 @@ def test_get_last_run_metrics_returns_processor_snapshot(tmp_path: Path) -> None
     assert metrics["processed_files"] >= 1
     assert "completed_at" in metrics
     assert "service_dropped_messages" in metrics
+    assert "max_file_size_megabytes" in metrics
+
+
+# Fix: Q-108
+def test_get_last_run_metrics_returns_drop_counts_when_empty() -> None:
+    """Drop counters should be exposed even if the processor has no metrics."""
+
+    service = ExtractorService()
+    service._dropped_control_messages = 3
+    service._dropped_state_messages = 1
+
+    metrics = service.get_last_run_metrics()
+
+    assert metrics is not None
+    assert metrics["service_dropped_messages"] == 3
+    assert metrics["service_dropped_state_messages"] == 1
 
 
 # Fix: Q-108
@@ -316,6 +393,7 @@ def test_state_payload_includes_metrics(tmp_path: Path) -> None:
                 "completed_at": "2025-01-01T00:00:00",
                 "large_file_warnings": 0,
                 "max_file_size_bytes": 0,
+                "max_file_size_megabytes": 0,
             }
 
     service = ExtractorService(

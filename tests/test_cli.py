@@ -201,6 +201,17 @@ def test_progress_callback_reports_unknown_totals(caplog) -> None:
     )
 
 
+def test_progress_callback_reports_zero_total(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="file_extractor")
+
+    _progress_callback(0, 0)
+
+    assert any(
+        "no eligible files" in record.getMessage().lower()
+        for record in caplog.records
+    )
+
+
 def test_run_cli_success(caplog, tmp_path: Path) -> None:
     options = CLIOptions(
         folder_path=tmp_path,
@@ -454,6 +465,7 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
                         "completed_at": "2025-01-01T00:00:00",
                         "large_file_warnings": 1,
                         "max_file_size_bytes": 4096,
+                        "max_file_size_megabytes": 4,
                     }
 
             self.file_processor = StubProcessor()
@@ -495,6 +507,7 @@ def test_run_cli_logs_metrics_summary(caplog, tmp_path: Path) -> None:
         assert "service_dropped_messages" in summary_text
         assert "large_file_warnings" in summary_text
         assert "max_file_size_bytes" in summary_text
+        assert "max_file_size_megabytes" in summary_text
     finally:
         logger.handlers[:] = original_handlers
         logger.propagate = original_propagate
