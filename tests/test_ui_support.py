@@ -86,6 +86,34 @@ def test_layout_builders_create_menu_and_status_bar(tk_root: tk.Tk) -> None:
     assert status_bar.cget("style") == "Status.TLabel"
 
 
+# Fix: Q-103
+def test_theme_manager_applies_menu_palette(tk_root: tk.Tk) -> None:
+    from ui_support import ThemeManager, ThemeTargets
+
+    style = ttk.Style(tk_root)
+    menu_bar = tk.Menu(tk_root)
+    menu_bar.add_command(label="File")
+    menu_bar.add_command(label="Theme")
+
+    manager = ThemeManager(
+        style,
+        ThemeTargets(
+            master=tk_root,
+            main_frame=ttk.Frame(tk_root),
+            extensions_frame=ttk.Frame(tk_root),
+            status_bar=ttk.Label(tk_root),
+            output_text=tk.Text(tk_root),
+            menu_bar=menu_bar,
+        ),
+    )
+
+    manager.apply("light")
+    manager.apply("nonexistent-theme")
+
+    assert menu_bar.cget("background")
+    assert manager.active_palette().window_bg
+
+
 # Fix: ux_accessibility_status_banner
 def test_status_banner_respects_severity_styles(tk_root: tk.Tk) -> None:
     """Status banner should track severity and message text."""
@@ -120,6 +148,18 @@ def test_status_banner_error_populates_default_guidance(tk_root: tk.Tk) -> None:
 
     banner.show_error("Extraction failed", detail="Check folder permissions")
     assert banner._detail_var.get() == "Check folder permissions"
+
+
+# Fix: ux_accessibility_status_banner
+def test_status_banner_clear_resets_ready_state(tk_root: tk.Tk) -> None:
+    from ui_support import StatusBanner
+
+    banner = StatusBanner(tk_root)
+    banner.show_success("Work complete", detail="Processed 4 files")
+    banner.clear()
+
+    assert banner._message_var.get() == "Ready"
+    assert banner._detail_var.get() == ""
 
 
 # Fix: Q-103
@@ -196,6 +236,22 @@ def test_shortcut_hint_manager_announces_hints(tk_root: tk.Tk) -> None:
 
     button.event_generate("<Leave>")
     assert status_var.get() == "Ready"
+
+
+# Fix: Q-107
+def test_keyboard_manager_clear_unbinds_shortcuts(tk_root: tk.Tk) -> None:
+    from ui_support import KeyboardManager
+
+    manager = KeyboardManager(tk_root)
+    manager.register_shortcuts({"<Alt-x>": lambda event: "break"})
+
+    assert manager._registered_shortcuts  # type: ignore[attr-defined]
+
+    manager.clear()
+
+    assert not manager._registered_shortcuts  # type: ignore[attr-defined]
+
+
 # Fix: Q-107
 def test_keyboard_manager_configures_focus_and_shortcuts(tk_root: tk.Tk) -> None:
     from ui_support import KeyboardManager

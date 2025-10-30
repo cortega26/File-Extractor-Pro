@@ -21,6 +21,7 @@ omit = [
     "tests/*",
     "ui.py",
     "file_extractor.py",
+    # Fix: Q-110 - Tk-dependent UI support modules are validated via manual smoke tests.
     "ui_support/*",
 ]
 
