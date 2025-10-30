@@ -35,10 +35,14 @@ class RecordingExtensionsProcessor(DummyFileProcessor):
     def __init__(self, output_queue: Queue) -> None:
         super().__init__(output_queue)
         self.seen_extensions: tuple[str, ...] | None = None
+        self.seen_mode: str | None = None
 
     def extract_files(self, *args, progress_callback, **kwargs):  # type: ignore[override]
         if len(args) >= 4:
+            mode_arg = args[1]
             extensions_arg = args[3]
+            if isinstance(mode_arg, str):
+                self.seen_mode = mode_arg
             if isinstance(extensions_arg, tuple):
                 self.seen_extensions = extensions_arg
             else:
@@ -119,6 +123,38 @@ def test_start_extraction_defaults_common_extensions_when_inclusion(tmp_path):
     assert not thread.is_alive()
     assert progress_called.is_set()
     assert service.file_processor.seen_extensions == tuple(COMMON_EXTENSIONS)
+
+
+def test_start_extraction_normalises_mode_and_extensions(tmp_path: Path) -> None:
+    progress_called = threading.Event()
+
+    def progress_callback(processed: int, total: int) -> None:
+        progress_called.set()
+
+    service = ExtractorService(
+        file_processor_factory=RecordingExtensionsProcessor,
+        output_queue=Queue(maxsize=4),
+    )
+
+    request = ExtractionRequest(
+        folder_path=str(tmp_path),
+        mode="INCLUSION",
+        include_hidden=False,
+        extensions=("txt", "*.MD"),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file_name=str(tmp_path / "out.txt"),
+    )
+
+    thread = service.start_extraction(
+        request=request,
+        progress_callback=progress_callback,
+    )
+    thread.join(timeout=1)
+
+    assert progress_called.is_set()
+    assert service.file_processor.seen_extensions == (".txt", ".md")
+    assert service.file_processor.seen_mode == "inclusion"
 
 
 def test_start_extraction_raises_when_running(tmp_path):
@@ -369,6 +405,52 @@ def test_get_last_run_metrics_returns_drop_counts_when_empty() -> None:
     assert metrics is not None
     assert metrics["service_dropped_messages"] == 3
     assert metrics["service_dropped_state_messages"] == 1
+
+
+# Fix: Q-108
+def test_state_payload_computes_megabytes_from_bytes(tmp_path: Path) -> None:
+    """Metrics should derive megabyte limits when only byte thresholds exist."""
+
+    output_queue: Queue[tuple[str, object]] = Queue(maxsize=4)
+
+    class BytesMetricsProcessor(DummyFileProcessor):
+        def extract_files(self, *args, progress_callback, **kwargs):  # type: ignore[override]
+            self.last_run_metrics = {
+                "processed_files": 0,
+                "elapsed_seconds": 0.1,
+                "files_per_second": 0.0,
+                "max_queue_depth": 0,
+                "dropped_messages": 0,
+                "skipped_files": 0,
+                "total_files": 0,
+                "total_files_known": True,
+                "completed_at": "2025-01-01T00:00:00",
+                "large_file_warnings": 0,
+                "max_file_size_bytes": 2 * 1024 * 1024,
+            }
+            progress_callback(0, 0)
+
+    service = ExtractorService(
+        file_processor_factory=BytesMetricsProcessor,
+        output_queue=output_queue,
+    )
+
+    service._run_extraction(
+        str(tmp_path),
+        "inclusion",
+        False,
+        (".txt",),
+        (),
+        (),
+        str(tmp_path / "out.txt"),
+        progress_callback=lambda *_args: None,
+    )
+
+    payload = service._latest_state_payload
+    assert payload is not None
+    metrics = payload.get("metrics")
+    assert metrics is not None
+    assert metrics["max_file_size_megabytes"] == 2.0
 
 
 # Fix: Q-108

@@ -7,11 +7,12 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from queue import Empty, Full, Queue
-from typing import Any, Callable, Dict, Sequence, Tuple
+from typing import Any, Callable, Dict, Sequence, Tuple, cast
 
 from constants import COMMON_EXTENSIONS
 from logging_utils import logger
-from processor import ExtractionCancelled, FileProcessor
+from processor import ExtractionCancelled, FileProcessor, LastRunMetrics
+from services.extension_utils import normalise_extension_tokens
 
 ProgressCallback = Callable[[int, int], None]
 
@@ -174,10 +175,18 @@ class ExtractorService:
                 "Missing extraction parameters: " + ", ".join(sorted(missing))
             )
 
-        resolved_extensions = tuple(extensions or ())
-        if str(mode) == "inclusion" and not resolved_extensions:
+        mode_normalised = str(mode).strip().lower()
+        if mode_normalised not in {"inclusion", "exclusion"}:
+            logger.warning("Unsupported mode '%s' provided; defaulting to inclusion", mode)
+            mode_normalised = "inclusion"
+
+        raw_extensions: Sequence[str] = tuple(extensions or ())
+        normalised_extensions = normalise_extension_tokens(raw_extensions)
+        if mode_normalised == "inclusion" and not normalised_extensions:
             # Fix: audit/backlog_Q-101 — ensure inclusion runs process common types
-            resolved_extensions = tuple(COMMON_EXTENSIONS)
+            normalised_extensions = tuple(COMMON_EXTENSIONS)
+
+        resolved_extensions = normalised_extensions
         resolved_exclude_files = tuple(exclude_files or ())
         resolved_exclude_folders = tuple(exclude_folders or ())
 
@@ -192,7 +201,7 @@ class ExtractorService:
                 target=self._run_extraction,
                 args=(
                     str(folder_path),
-                    str(mode),
+                    mode_normalised,
                     bool(include_hidden),
                     resolved_extensions,
                     resolved_exclude_files,
@@ -325,13 +334,15 @@ class ExtractorService:
             state_payload["message"] = str(exc)
         finally:
             # Fix: Q-108 - attach instrumentation metrics to the terminal state payload.
-            metrics_snapshot: dict[str, float | int | str] | None = None
+            metrics_snapshot: LastRunMetrics | None = None
             try:
                 metrics_candidate = getattr(self._file_processor, "last_run_metrics", None)
                 if callable(metrics_candidate):  # pragma: no cover - defensive branch
                     metrics_candidate = metrics_candidate()
                 if isinstance(metrics_candidate, dict):
-                        metrics_snapshot = {
+                    metrics_snapshot = cast(
+                        LastRunMetrics,
+                        {
                             key: metrics_candidate[key]
                             for key in (
                                 "processed_files",
@@ -346,14 +357,27 @@ class ExtractorService:
                                 "completed_at",
                                 "large_file_warnings",
                                 "max_file_size_bytes",
+                                "max_file_size_megabytes",
                             )
                             if key in metrics_candidate
-                        }
+                        },
+                    )
+                    if metrics_snapshot is not None:
+                        bytes_value = metrics_snapshot.get("max_file_size_bytes")
+                        megabyte_value = metrics_snapshot.get("max_file_size_megabytes")
+                        if (
+                            megabyte_value is None
+                            and isinstance(bytes_value, (int, float))
+                            and bytes_value > 0
+                        ):
+                            metrics_snapshot["max_file_size_megabytes"] = round(
+                                float(bytes_value) / (1024 * 1024), 3
+                            )
             except Exception as exc:  # pragma: no cover - defensive guard
                 logger.debug("Unable to capture extraction metrics for state payload: %s", exc)
             else:
                 if metrics_snapshot is None:
-                    metrics_snapshot = {}
+                    metrics_snapshot = cast(LastRunMetrics, {})
                 metrics_snapshot.setdefault(
                     "service_dropped_messages", self._dropped_control_messages
                 )
@@ -426,7 +450,7 @@ class ExtractorService:
 
 
     # Fix: Q-108
-    def get_last_run_metrics(self) -> dict[str, float | int | str] | None:
+    def get_last_run_metrics(self) -> LastRunMetrics | None:
         """Expose the processor's most recent instrumentation snapshot."""
 
         processor = getattr(self, "_file_processor", None)
@@ -435,7 +459,7 @@ class ExtractorService:
         metrics = getattr(processor, "last_run_metrics", None)
         if callable(metrics):
             metrics = metrics()
-        snapshot: dict[str, float | int | str] = dict(metrics or {})
+        snapshot: LastRunMetrics = cast(LastRunMetrics, dict(metrics or {}))
         snapshot.setdefault(
             "service_dropped_messages", self._dropped_control_messages
         )
@@ -443,10 +467,13 @@ class ExtractorService:
             "service_dropped_state_messages", self._dropped_state_messages
         )
         # Fix: Q-108 - surface drop metrics even when the processor snapshot is empty.
-        return snapshot if snapshot else {
-            "service_dropped_messages": self._dropped_control_messages,
-            "service_dropped_state_messages": self._dropped_state_messages,
-        }
+        return snapshot if snapshot else cast(
+            LastRunMetrics,
+            {
+                "service_dropped_messages": self._dropped_control_messages,
+                "service_dropped_state_messages": self._dropped_state_messages,
+            },
+        )
 
 
 __all__ = [

@@ -58,6 +58,34 @@ def test_theme_manager_applies_styles(tk_root: tk.Tk) -> None:
     assert extensions_frame.cget("style") == "Main.TFrame"
 
 
+# Fix: Q-103
+def test_layout_builders_create_menu_and_status_bar(tk_root: tk.Tk) -> None:
+    """Menu/status builders should wire callbacks and styling."""
+
+    from ui_support import build_menu_bar, build_status_bar
+
+    calls = {"exit": 0, "theme": 0}
+
+    menu = build_menu_bar(
+        tk_root,
+        on_exit=lambda: calls.__setitem__("exit", calls["exit"] + 1),
+        on_toggle_theme=lambda: calls.__setitem__("theme", calls["theme"] + 1),
+    )
+
+    file_menu = menu.nametowidget(menu.entrycget(0, "menu"))
+    options_menu = menu.nametowidget(menu.entrycget(1, "menu"))
+
+    file_menu.invoke(0)
+    options_menu.invoke(0)
+
+    assert calls["exit"] == 1
+    assert calls["theme"] == 1
+
+    status_var, status_bar = build_status_bar(tk_root)
+    assert isinstance(status_var, tk.StringVar)
+    assert status_bar.cget("style") == "Status.TLabel"
+
+
 # Fix: ux_accessibility_status_banner
 def test_status_banner_respects_severity_styles(tk_root: tk.Tk) -> None:
     """Status banner should track severity and message text."""
@@ -77,6 +105,21 @@ def test_status_banner_respects_severity_styles(tk_root: tk.Tk) -> None:
     assert banner._current_severity == "success"
     assert "complete" in banner._message_var.get().lower()
     assert "run summary" in banner._detail_var.get().lower()
+
+
+# Fix: ux_accessibility_status_guidance
+def test_status_banner_error_populates_default_guidance(tk_root: tk.Tk) -> None:
+    """Error messages should include actionable instructions when detail missing."""
+
+    from ui_support import StatusBanner
+
+    banner = StatusBanner(tk_root)
+    banner.show_error("Extraction failed")
+
+    assert "review the extraction log" in banner._detail_var.get().lower()
+
+    banner.show_error("Extraction failed", detail="Check folder permissions")
+    assert banner._detail_var.get() == "Check folder permissions"
 
 
 # Fix: Q-103
