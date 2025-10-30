@@ -96,8 +96,19 @@ class StatusBanner(ttk.Frame):
             self.grid()
             self._visible = True
 
+    # Fix: ux_accessibility_status_guidance
     def show_error(self, message: str, *, detail: str | None = None) -> None:
-        self.show(message, severity="error", detail=detail)
+        """Show an error message with actionable follow-up guidance."""
+
+        guidance = (
+            detail
+            if detail and detail.strip()
+            else (
+                "Review the extraction log for more details or generate the JSON "
+                "report for a full summary."
+            )
+        )
+        self.show(message, severity="error", detail=guidance)
 
     def show_success(self, message: str, *, detail: str | None = None) -> None:
         self.show(message, severity="success", detail=detail)

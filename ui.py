@@ -30,6 +30,7 @@ from logging_utils import logger
 from processor import FileProcessor
 from services import ExtractionRequest, ExtractorService
 from services.extension_utils import normalise_extension_tokens
+from ui_support.layout_builders import build_menu_bar, build_status_bar
 
 StatusBanner: type | None = None
 ThemeManager: type | None = None
@@ -329,8 +330,13 @@ class FileExtractorGUI:
         self._build_actions_row(row=9)
 
         self.setup_output_area(start_row=10)
-        self.setup_menu_bar()
-        self.setup_status_bar()
+        # Fix: Q-103 - delegate menu and status creation to dedicated builders.
+        self.menu_bar = build_menu_bar(
+            self.master,
+            on_exit=self.master.quit,
+            on_toggle_theme=self.toggle_theme,
+        )
+        self.status_var, self.status_bar = build_status_bar(self.master)
         self.shortcut_hint_manager: ShortcutHintManagerType = ShortcutHintManager(
             self.status_var
         )
@@ -449,33 +455,6 @@ class FileExtractorGUI:
             sticky=tk.E,
         )
         self.generate_report_button.configure(underline=0)
-
-    def setup_menu_bar(self) -> None:
-        """Set up application menu bar."""
-
-        self.menu_bar = tk.Menu(self.master)
-        self.master.config(menu=self.menu_bar)
-
-        file_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Exit", command=self.master.quit)
-
-        options_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="Options", menu=options_menu)
-        options_menu.add_command(label="Toggle Theme", command=self.toggle_theme)
-
-    def setup_status_bar(self) -> None:
-        """Set up status bar."""
-
-        self.status_var = tk.StringVar()
-        self.status_bar = ttk.Label(
-            self.master,
-            textvariable=self.status_var,
-            relief=tk.SUNKEN,
-            anchor=tk.W,
-            style="Status.TLabel",
-        )
-        self.status_bar.grid(row=1, column=0, sticky=tk.W + tk.E)
 
     # Fix: Q-107
     def _register_keyboard_shortcuts(self) -> None:

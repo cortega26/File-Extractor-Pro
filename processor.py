@@ -9,9 +9,21 @@ from copy import deepcopy
 from datetime import datetime
 from queue import Empty, Full, Queue
 from time import perf_counter
-from typing import IO, Any, Callable, Dict, Iterable, MutableMapping, Sequence, Set, Tuple
+from typing import (
+    IO,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    MutableMapping,
+    Sequence,
+    Set,
+    Tuple,
+    TypedDict,
+    cast,
+)
 
-from constants import CHUNK_SIZE, SPECIFICATION_FILES
+from constants import CHUNK_SIZE, COMMON_EXTENSIONS, SPECIFICATION_FILES
 from logging_utils import logger
 
 
@@ -58,6 +70,27 @@ class ExtractionSkipped(RuntimeError):
     """Raised when a file must be skipped for safety reasons."""
 
 
+# Fix: Q-104
+class LastRunMetrics(TypedDict, total=False):
+    """Typed dictionary describing processor instrumentation fields."""
+
+    processed_files: int
+    elapsed_seconds: float
+    files_per_second: float
+    max_queue_depth: int
+    dropped_messages: int
+    skipped_files: int
+    total_files: int
+    total_files_known: bool
+    total_files_estimated: int
+    completed_at: str
+    large_file_warnings: int
+    max_file_size_bytes: int | None
+    max_file_size_megabytes: float | None
+    service_dropped_messages: int
+    service_dropped_state_messages: int
+
+
 class FileProcessor:
     """Enhanced file processor with improved error handling and performance."""
 
@@ -83,7 +116,7 @@ class FileProcessor:
         self._max_file_size_bytes: int | None = None
         self.configure_max_file_size(max_file_size_mb)
         self._max_queue_depth: int = 0
-        self._last_run_metrics: Dict[str, float | int | str] = {}
+        self._last_run_metrics: LastRunMetrics = {}
         self._dropped_messages: int = 0
         self._skipped_files: int = 0
         self._large_file_warning_count: int = 0
@@ -406,10 +439,10 @@ class FileProcessor:
         return processed_successfully
 
     @property
-    def last_run_metrics(self) -> Dict[str, float | int | str]:
+    def last_run_metrics(self) -> LastRunMetrics:
         """Return instrumentation metrics captured during the last extraction."""
 
-        return dict(self._last_run_metrics)
+        return cast(LastRunMetrics, dict(self._last_run_metrics))
 
     def _update_extraction_summary(
         self, file_ext: str, file_path: str, file_size: int, file_hash: str
@@ -596,6 +629,17 @@ class FileProcessor:
         processed_count = 0
         skipped_count = 0
 
+        from services.extension_utils import normalise_extension_tokens
+
+        mode_normalised = str(mode).strip().lower()
+        if mode_normalised not in {"inclusion", "exclusion"}:
+            logger.warning("Unsupported mode '%s' provided; defaulting to inclusion", mode)
+            mode_normalised = "inclusion"
+
+        normalised_extensions = tuple(normalise_extension_tokens(extensions))
+        if mode_normalised == "inclusion" and not normalised_extensions:
+            normalised_extensions = tuple(COMMON_EXTENSIONS)
+
         try:
             output_file_abs = os.path.abspath(output_file_name)
 
@@ -614,9 +658,9 @@ class FileProcessor:
                     eligible_paths = list(
                         self._iter_eligible_file_paths(
                             folder_path=folder_path,
-                            mode=mode,
+                            mode=mode_normalised,
                             include_hidden=include_hidden,
-                            extensions=extensions,
+                            extensions=normalised_extensions,
                             exclude_files=exclude_files,
                             exclude_folders=exclude_folders,
                             output_file_abs=output_file_abs,
@@ -635,9 +679,9 @@ class FileProcessor:
                     total_files = -1
                     iteration_source = self._iter_eligible_file_paths(
                         folder_path=folder_path,
-                        mode=mode,
+                        mode=mode_normalised,
                         include_hidden=include_hidden,
-                        extensions=extensions,
+                        extensions=normalised_extensions,
                         exclude_files=exclude_files,
                         exclude_folders=exclude_folders,
                         output_file_abs=output_file_abs,
@@ -721,10 +765,12 @@ class FileProcessor:
                 "skipped_files": skipped_count,
                 "total_files_known": known_total is not None,
                 "large_file_warnings": self._large_file_warning_count,
-                "max_file_size_bytes": int(self._max_file_size_bytes or 0),
+                "max_file_size_bytes": self._max_file_size_bytes,
                 # Fix: Q-105 - expose large file guard thresholds in human-friendly units.
-                "max_file_size_megabytes": round(
-                    (self._max_file_size_bytes or 0) / (1024 * 1024), 3
+                "max_file_size_megabytes": (
+                    round((self._max_file_size_bytes / (1024 * 1024)), 3)
+                    if self._max_file_size_bytes
+                    else None
                 ),
             }
             if known_total is None:
@@ -756,4 +802,9 @@ class FileProcessor:
             )
 
 
-__all__ = ["ExtractionCancelled", "ExtractionSkipped", "FileProcessor"]
+__all__ = [
+    "ExtractionCancelled",
+    "ExtractionSkipped",
+    "FileProcessor",
+    "LastRunMetrics",
+]
