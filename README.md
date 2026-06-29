@@ -1,5 +1,9 @@
 # File Extractor Pro
 
+*Part of the [Tooltician ecosystem](https://tooltician.com) — GUI file extraction and processing tool.*
+
+[![Part of Tooltician](https://img.shields.io/badge/Part%20of-Tooltician-6C47FF.svg?style=flat-square&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTIgM2g2YTQgNCAwIDAgMSA0IDR2MTRhMiAyIDAgMCAwLTItMkg0YTIgMiAwIDAgMS0yLTJWNVoiLz48cGF0aCBkPSJNMjIgM2gtNmE0IDQgMCAwIDAtNCA0djE0YTIgMiAwIDAgMSAyLTJoNGEyIDIgMCAwIDAgMi0yVjVhMiAyIDAgMCAwLTItMloiLz48L3N2Zz4=)](https://tooltician.com)
+
 File Extractor Pro is a GUI application to extract and process files based on specified criteria. It allows users to include or exclude files based on extensions, include hidden files, and generate detailed extraction reports.
 
 ## Features
@@ -171,3 +175,7 @@ Capture and address any medium- or high-severity findings before merging.
 ## License
 
 This project is licensed under the MIT License.
+
+---
+
+*Part of the [Tooltician](https://tooltician.com) ecosystem — GUI file extraction and processing tool.*
