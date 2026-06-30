@@ -2,7 +2,7 @@
 
 *Part of the [Tooltician ecosystem](https://tooltician.com) — GUI file extraction and processing tool.*
 
-[![Part of Tooltician](https://tooltician.com/badge.en.svg)](https://tooltician.com)
+[![Part of Tooltician](https://img.shields.io/badge/Part_of-Tooltician.com-6C47FF?v=2)](https://tooltician.com)
 
 File Extractor Pro is a GUI application to extract and process files based on specified criteria. It allows users to include or exclude files based on extensions, include hidden files, and generate detailed extraction reports.
 
