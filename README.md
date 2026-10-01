@@ -91,7 +91,7 @@ silent zero-output runs.
   time, files per second, queue saturation, dropped status messages, service
   queue drops, large file warnings, and skipped files) at the end of the
   execution to aid monitoring.
-- <!-- Fix: Q-109 -->When directory enumeration falls back to an indeterminate
+- When directory enumeration falls back to an indeterminate
   mode (for very large trees), the CLI records a final progress update with the
   completed file count and logs a completion timestamp so automation can detect
   when the run finished.
