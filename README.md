@@ -138,6 +138,33 @@ Highlights include:
 
 ## Command-line interface
 
+### Inspect before extracting (read-only)
+
+Preview the *exact selection plan* without creating or overwriting the output
+or the optional JSON report:
+
+```bash
+python -m services.cli ./project --dry-run --extensions py md
+```
+
+Generate a machine-readable preview suitable for CI, shell automation,
+or an AI assistant:
+
+```bash
+python -m services.cli ./project --dry-run --preview-format json > selection.json
+```
+
+The preview lists source-relative paths, byte sizes, totals, and any warning
+about an existing destination. Preview and extraction share the same file
+selection logic, including deterministic ordering and exclusion rules.
+README/specification files no longer bypass filters. File symlinks are
+excluded to avoid reading outside the selected tree.
+
+**Note:** Preview does not inspect file contents, estimate model tokens,
+or guarantee that a selected file can be decoded as UTF-8. It never writes
+the configured output/report paths; shell redirection in the JSON example
+is performed by the shell.
+
 ### Useful examples
 
 Extract Python, Markdown, and JSON files:
@@ -200,6 +227,8 @@ python -m services.cli ./project \
 | `--include-hidden` | flag | off | Traverse hidden files and folders. |
 | `--exclude-files` | list | empty | File-name patterns to skip. |
 | `--exclude-folders` | list | empty | Folder-name patterns to skip. |
+| `--dry-run` | flag | off | Show proposed extraction without writing output or report. |
+| `--preview-format` | choice | `text` | Preview as `text` or `json`. |
 | `--output` | path | `extraction.txt` | Combined text output. |
 | `--report` | path | none | Write a JSON extraction report. |
 | `--max-file-size-mb` | integer | auto | Soft warning threshold; large files are still streamed. |
@@ -221,6 +250,8 @@ The processing layer:
 - Tracks processed/skipped files, throughput, queue depth, dropped status messages, large-file warnings, and completion timestamps.
 - Supports cooperative cancellation during traversal and file streaming.
 - Preserves terminal state messages under queue pressure.
+- Stages output in a temporary sibling file and atomically replaces the
+  destination on success; failed or cancelled runs preserve existing output.
 
 That instrumentation is also exposed to the CLI logs, making automated jobs easier to observe and diagnose.
 
