@@ -2,279 +2,271 @@
 
 <div align="center">
 
-### Turn an entire folder tree into one clean, filtered, auditable text corpus.
+### One folder. The files that matter. One readable output.
 
-**Desktop GUI when you want control. CLI when you want automation. Local processing when your files should stay yours.**
+**Preview and package source code, documentation, logs, and configuration files — locally, with a desktop app or a scriptable CLI.**
 
+[![Tests](https://github.com/cortega26/File-Extractor-Pro/actions/workflows/tests.yml/badge.svg)](https://github.com/cortega26/File-Extractor-Pro/actions/workflows/tests.yml)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![GUI](https://img.shields.io/badge/Desktop-Tkinter-4B8BBE)](#desktop-gui)
-[![CLI](https://img.shields.io/badge/Automation-CLI-222222)](#command-line-interface)
-[![Local](https://img.shields.io/badge/Processing-Local--first-2E8B57)](#why-file-extractor-pro)
-[![Part of Tooltician](https://img.shields.io/badge/Part_of-Tooltician.com-6C47FF?v=2)](https://tooltician.com)
+[![GUI + CLI](https://img.shields.io/badge/Interfaces-GUI%20%2B%20CLI-344054)](#two-ways-to-work)
+[![Local processing](https://img.shields.io/badge/Processing-Local-147D64)](#know-before-you-export)
+[![MIT license](https://img.shields.io/badge/License-MIT-2962A3)](LICENSE)
+
+[Quick start](#quick-start) · [See it in action](#see-it-in-action) · [Examples](#cli-cookbook) · [Limitations](#know-before-you-export)
 
 </div>
 
 ---
 
-**File Extractor Pro** consolidates the UTF-8 text files you care about from a directory tree into a single readable output file while preserving each file's path, applying precise inclusion/exclusion rules, and optionally producing a machine-readable JSON report.
+Opening 40 files just to share the useful parts of a project shouldn't take 40 copy-and-paste operations.
 
-It is built for the deceptively common job that usually ends in disposable scripts:
+**File Extractor Pro** walks a directory tree, selects the text files you care about, and combines them into one clearly labeled document. Inspect the selection first with a **read-only preview**, work interactively in **Tkinter**, or run the same extraction engine in a **CLI** for repeatable tasks.
 
-> **“Give me the useful contents of this project or folder, but leave out the noise.”**
+No account, API key, cloud upload, or third-party runtime package is required.
 
-Use it to package source trees for review, prepare context for AI/LLM workflows, aggregate documentation, collect logs or configuration files, create portable text snapshots, or automate repeatable extraction jobs.
+## Quick start
 
-## Why File Extractor Pro?
+**Requirements:** Python 3.9+; Tkinter is additionally required for the desktop interface.
 
-| What you need | What File Extractor Pro gives you |
-| --- | --- |
-| **One useful artifact, not a directory maze** | Combines matching files into a single text output with source paths preserved. |
-| **Control over what gets included** | Inclusion and exclusion modes, custom extensions, hidden-file control, and file/folder exclusion patterns. |
-| **A tool for humans and scripts** | Full desktop GUI plus a headless CLI built on the same extraction service. |
-| **Local processing** | Extraction happens on your machine; the application does not need a cloud service to process your files. |
-| **Traceability** | Optional JSON reports include per-file size, extension, processing time, and SHA-256 hash. |
-| **Large-tree resilience** | Chunked streaming, soft file-size warnings, cancellation support, background processing, and progress/throughput instrumentation. |
-| **Low setup friction** | The application itself uses Python's standard library; no third-party runtime framework is required. |
+```bash
+git clone https://github.com/cortega26/File-Extractor-Pro.git
+cd File-Extractor-Pro
+```
 
-> **The result:** less copy/paste, fewer throwaway scripts, and a reproducible way to turn a messy folder tree into a portable body of text.
+**1. Preview a folder without writing an output file:**
 
-## What it produces
+```bash
+python -m services.cli ./my-project \
+  --extensions py md json yaml \
+  --exclude-folders node_modules .venv build dist \
+  --dry-run
+```
 
-Given a tree like:
+**2. Extract those files and generate a JSON report:** remove `--dry-run` and give the output an explicit destination.
+
+```bash
+python -m services.cli ./my-project \
+  --extensions py md json yaml \
+  --exclude-folders node_modules .venv build dist \
+  --output ./project-context.txt \
+  --report ./extraction-report.json
+```
+
+**Prefer a desktop window?**
+
+```bash
+python file_extractor.py
+```
+
+Choose a folder, tune inclusion/exclusion rules, and select **Extract**. The interface shows progress, supports cancellation, and can generate a report.
+
+> **Tip:** Run commands from the cloned File-Extractor-Pro directory, replacing `./my-project` with a real folder path. The example output paths are illustrative.
+
+## See it in action
+
+Suppose your source tree looks like this:
 
 ```text
 my-project/
 ├── README.md
 ├── src/
 │   ├── app.py
-│   └── config.py
-└── node_modules/
+│   └── settings.py
+├── node_modules/
+└── .venv/
 ```
 
-File Extractor Pro can produce a single output like:
+Preview the selection:
+
+```bash
+python -m services.cli ./my-project \
+  --extensions md py \
+  --exclude-folders node_modules .venv \
+  --dry-run
+```
+
+The output is a readable inventory of **selected file paths and source byte sizes**:
+
+```text
+File Extractor Pro — read-only preview
+Source: /absolute/path/to/my-project
+Output: extraction.txt
+Selected: 3 files, ... source bytes
+
+  README.md  (... bytes)
+  src/app.py  (... bytes)
+  src/settings.py  (... bytes)
+```
+
+*Illustrative display; paths and sizes depend on your files.*
+
+Run the same command without `--dry-run` and with `--output project-context.txt` to generate a combined UTF-8 text file:
 
 ```text
 my-project/README.md:
-# My Project
+# My project
 ...
 
 my-project/src/app.py:
 def main():
     ...
 
-my-project/src/config.py:
+my-project/src/settings.py:
 ...
 ```
 
-Directories such as `.git`, `.venv`, `node_modules`, `__pycache__`, and other configured exclusions can stay out of the result.
+Each section keeps its source path so readers can identify where its content came from. The original files are read, not edited.
 
-## Built for real workflows
+## What you get
 
-File Extractor Pro is particularly useful when you need to:
+| Capability | Why it matters |
+| --- | --- |
+| **Preview before extraction** | See selected paths, source sizes, totals, and an existing-output warning without writing the extraction or report files. |
+| **Fine-grained selection** | Include or exclude extensions, files, folders, and hidden entries. |
+| **Readable combined output** | Concatenate UTF-8 text with clear source-path separators. |
+| **Optional JSON report** | Inspect per-file sizes, extensions, processing timestamps, and SHA-256 hashes of processed text. |
+| **Safe completion behavior** | Output is staged in a temporary sibling file and atomically replaced after successful extraction. |
+| **Predictable ordering** | Deterministic directory/file traversal; eligible top-level README/specification files come first. |
+| **Works at a desk or in automation** | Tkinter GUI and headless CLI share the extraction service. |
+| **Built for large folder trees** | Chunked reading, soft size warnings, cooperative cancellation, and progress/throughput metrics. |
 
-- **Package a codebase for review or AI-assisted analysis** without manually opening dozens of files.
-- **Aggregate documentation and notes** into a single searchable artifact.
-- **Collect selected logs, configuration, CSV, JSON, YAML, Markdown, or source files** from nested directories.
-- **Create reproducible project snapshots** with a JSON manifest and SHA-256 hashes.
-- **Automate recurring extraction jobs** from shell scripts, scheduled tasks, or other tooling.
-- **Explore large directory trees interactively** without blocking the desktop UI during processing.
+### Good fits
 
-The default extension set covers common text-oriented project files, and custom extensions can be supplied whenever your workflow needs something else.
+- **Code reviews and AI-assisted development:** hand a reviewer a controlled text snapshot rather than an entire directory.
+- **Documentation handoffs:** consolidate Markdown, text notes, and configuration samples.
+- **Incident investigation:** gather relevant text logs or config files from nested folders.
+- **Reproducible automation:** use the CLI and JSON report in scripts or scheduled workflows.
 
-## Quick start
+**It packages context; it does not interpret, summarize, or analyze it with AI.**
 
-### Desktop GUI
+## Two ways to work
 
-Clone the repository and launch it:
+### Desktop app
 
-```bash
-git clone https://github.com/cortega26/File-Extractor-Pro.git
-cd File-Extractor-Pro
-python file_extractor.py
-```
+Launch with `python file_extractor.py`. The GUI includes:
 
-No third-party application runtime dependencies are required. You need **Python 3.9+** and a Python installation with **Tkinter** available.
+- Folder picker and recently used folders
+- Inclusion/exclusion modes and custom extensions
+- Hidden-file controls and filename/folder patterns
+- Light/dark themes and a resizable layout
+- Background extraction, live progress, cancellation, and JSON reports
 
-Then:
+**Keyboard shortcuts**
 
-1. Select a folder.
-2. Choose **Inclusion** or **Exclusion** mode.
-3. Pick extensions and optional exclusion patterns.
-4. Click **Extract**.
-5. Inspect the output and optionally generate a JSON report.
+| Shortcut | Action |
+| --- | --- |
+| `Alt+E` or `F5` | Start extraction |
+| `Alt+C` or `Esc` | Cancel |
+| `Alt+G` | Generate report |
+
+The **read-only preview is currently a CLI feature**, not a GUI button.
 
 ### Command-line interface
 
-For scripts, automation, servers, or terminal-first workflows:
+Run `python -m services.cli --help` for the current CLI help.
+
+<details>
+<summary><strong>CLI options</strong></summary>
+
+| Argument | Default | Purpose |
+| --- | --- | --- |
+| `folder` | Required | Root directory |
+| `--mode inclusion\|exclusion` | `inclusion` | Include or exclude listed extensions |
+| `--extensions py md` | Common extension set | Extensions to include or exclude; comma-separated values also work |
+| `--exclude-files PATTERN ...` | None | Skip matching filenames |
+| `--exclude-folders PATTERN ...` | None | Skip matching folder names |
+| `--include-hidden` | Off | Consider hidden files and directories |
+| `--dry-run` | Off | Preview selection without writing output/report |
+| `--preview-format text\|json` | `text` | Preview formatting (`--dry-run` only) |
+| `--output PATH` | `extraction.txt` | Combined text output |
+| `--report PATH` | None | Optional JSON report after extraction |
+| `--max-file-size-mb N` | Automatic | Soft warning threshold; not a hard rejection limit |
+| `--poll-interval SECONDS` | `0.1` | Status polling interval |
+| `--log-level LEVEL` | `INFO` | Logging verbosity |
+
+</details>
+
+## CLI cookbook
+
+**Get a JSON preview for another tool to consume**
 
 ```bash
-python -m services.cli /path/to/project --output project-context.txt
-```
-
-If you omit `--extensions` in inclusion mode, File Extractor Pro uses its curated common-extension set instead of silently producing an empty result.
-
-## Desktop GUI
-
-The GUI is designed to make repeat extraction work fast rather than merely expose every option.
-
-Highlights include:
-
-- Recent-folder history for quick reuse.
-- Inclusion and exclusion modes.
-- Common and custom extension selection.
-- Hidden-file/folder toggle.
-- File and folder exclusion patterns.
-- Responsive layout for different window sizes and display scaling.
-- Light and dark themes.
-- Background extraction with live progress and status output.
-- Cancellation of an in-progress extraction.
-- JSON report generation.
-- Keyboard accelerators:
-  - `Alt+E` — Extract
-  - `Alt+C` — Cancel
-  - `Alt+G` — Generate Report
-  - `F5` — Start extraction
-  - `Esc` — Cancel extraction
-
-## Command-line interface
-
-### Inspect before extracting (read-only)
-
-Preview the *exact selection plan* without creating or overwriting the output
-or the optional JSON report:
-
-```bash
-python -m services.cli ./project --dry-run --extensions py md
-```
-
-Generate a machine-readable preview suitable for CI, shell automation,
-or an AI assistant:
-
-```bash
-python -m services.cli ./project --dry-run --preview-format json > selection.json
-```
-
-The preview lists source-relative paths, byte sizes, totals, and any warning
-about an existing destination. Preview and extraction share the same file
-selection logic, including deterministic ordering and exclusion rules.
-README/specification files no longer bypass filters. File symlinks are
-excluded to avoid reading outside the selected tree.
-
-**Note:** Preview does not inspect file contents, estimate model tokens,
-or guarantee that a selected file can be decoded as UTF-8. It never writes
-the configured output/report paths; shell redirection in the JSON example
-is performed by the shell.
-
-### Useful examples
-
-Extract Python, Markdown, and JSON files:
-
-```bash
-python -m services.cli ./project \
+python -m services.cli ./my-project \
   --extensions py md json \
-  --output project-context.txt
+  --dry-run --preview-format json > selection.json
 ```
 
-Accept comma-separated extensions too:
+This writes `selection.json` through your **shell's redirection**, not through the extractor. The extractor does not create its configured output/report in dry-run mode.
+
+**Package only Python and Markdown**
 
 ```bash
-python -m services.cli ./project \
-  --extensions "py,md,json,yaml" \
-  --output project-context.txt
+python -m services.cli ./my-project \
+  --extensions py md \
+  --output ./code-review.txt
 ```
 
-Process every file type while still respecting exclusions:
+**Use explicit directory and file exclusions**
 
 ```bash
-python -m services.cli ./project \
-  --extensions "*" \
+python -m services.cli ./my-project \
+  --extensions py md yaml \
+  --exclude-folders node_modules .venv dist build \
+  --exclude-files "*.generated.py" "*.min.js" \
+  --output ./filtered-context.txt
+```
+
+**Collect text while excluding certain extension types**
+
+```bash
+python -m services.cli ./my-project \
+  --mode exclusion --extensions log db \
+  --exclude-folders node_modules .venv \
+  --output ./filtered-files.txt
+```
+
+**Inspect every candidate filename, including hidden ones**
+
+```bash
+python -m services.cli ./my-project \
+  --extensions "*" --include-hidden \
   --exclude-folders .git node_modules .venv \
-  --output full-context.txt
+  --dry-run
 ```
 
-Exclude specific extension types instead:
+This last command is intentionally broad. It may select secrets or binary files; inspect the result carefully before extraction.
 
-```bash
-python -m services.cli ./project \
-  --mode exclusion \
-  --extensions log db \
-  --output filtered-context.txt
-```
+## Know before you export
 
-Generate an auditable JSON report alongside the output:
+A clear understanding of the current boundaries is part of a trustworthy extraction workflow.
 
-```bash
-python -m services.cli ./project \
-  --output project-context.txt \
-  --report extraction-report.json
-```
+| Behavior | Important detail |
+| --- | --- |
+| **Text only** | The extractor reads UTF-8 text. Undecodable or binary files are skipped with diagnostics; it does not parse PDFs, DOCX, images, archives, or OCR. |
+| **Preview ≠ content validation** | Dry-run checks selection and file sizes, not encoding, readability, security, or LLM token count. |
+| **No automatic `.gitignore` parsing** | Supply explicit `--exclude-files` and `--exclude-folders` patterns. CLI exclusion lists are empty by default; GUI configuration has its own defaults. |
+| **No secret scanning** | Be careful with credentials, personal information, and hidden config files; review before sharing output. |
+| **Symlinks** | Symlinked files are skipped to avoid unintentionally reading content outside the selected tree. |
+| **Output replacement** | Failed or cancelled runs preserve an existing destination. **Successful runs replace it**, rather than creating a backup. |
+| **Source files** | Original files are not modified by extraction. |
 
-Include hidden files and increase logging detail:
+Patterns currently match **file/folder names**, not full Git-style path rules. For a large repository, use explicit exclusions for dependency directories, generated artifacts, and other irrelevant content.
 
-```bash
-python -m services.cli ./project \
-  --include-hidden \
-  --log-level DEBUG
-```
+## JSON reports
 
-### CLI reference
-
-| Flag | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `folder` | path | required | Root folder to traverse. |
-| `--mode` | choice | `inclusion` | Include matching extensions or exclude them. |
-| `--extensions` | list | common set | Extensions to include/exclude; leading dots are optional. |
-| `--include-hidden` | flag | off | Traverse hidden files and folders. |
-| `--exclude-files` | list | empty | File-name patterns to skip. |
-| `--exclude-folders` | list | empty | Folder-name patterns to skip. |
-| `--dry-run` | flag | off | Show proposed extraction without writing output or report. |
-| `--preview-format` | choice | `text` | Preview as `text` or `json`. |
-| `--output` | path | `extraction.txt` | Combined text output. |
-| `--report` | path | none | Write a JSON extraction report. |
-| `--max-file-size-mb` | integer | auto | Soft warning threshold; large files are still streamed. |
-| `--poll-interval` | float | `0.1` | Status queue polling interval. |
-| `--log-level` | choice | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
-
-The CLI accepts extension names with or without a leading dot, normalizes case for mode/log-level options, supports comma-separated extension sets, and returns conventional exit codes for successful, failed, or interrupted runs.
-
-## Designed for large and imperfect inputs
-
-File extraction gets awkward when the directory is large, files are huge, queues fill up, encodings are invalid, or users want to stop halfway through. File Extractor Pro treats those as normal operating conditions.
-
-The processing layer:
-
-- Streams file contents in chunks instead of loading an entire file into memory.
-- Emits warnings when files exceed a configurable soft size threshold rather than imposing a hard-coded size cap.
-- Can reduce chunk size under memory pressure.
-- Skips unreadable or non-UTF-8 files cleanly instead of corrupting the combined output.
-- Tracks processed/skipped files, throughput, queue depth, dropped status messages, large-file warnings, and completion timestamps.
-- Supports cooperative cancellation during traversal and file streaming.
-- Preserves terminal state messages under queue pressure.
-- Stages output in a temporary sibling file and atomically replaces the
-  destination on success; failed or cancelled runs preserve existing output.
-
-That instrumentation is also exposed to the CLI logs, making automated jobs easier to observe and diagnose.
-
-## Auditable JSON reports
-
-A report is more than a “files processed” counter. File Extractor Pro records enough metadata to make an extraction inspectable later.
-
-Example shape:
+Request a report using `--report extraction-report.json`. The structure resembles:
 
 ```json
 {
-  "timestamp": "2026-10-07T12:00:00",
-  "total_files": 42,
-  "total_size": 183204,
+  "timestamp": "2026-10-12T10:30:00",
+  "total_files": 1,
+  "total_size": 19,
   "extension_summary": {
-    ".py": {
-      "count": 18,
-      "total_size": 92110
-    }
+    ".py": { "count": 1, "total_size": 19 }
   },
   "file_details": {
-    "project/src/app.py": {
-      "size": 4312,
+    "my-project/src/app.py": {
+      "size": 19,
       "hash": "<sha256>",
       "extension": ".py",
       "processed_time": "<timestamp>"
@@ -283,101 +275,54 @@ Example shape:
 }
 ```
 
-This makes reports useful for repeatability, change detection, downstream tooling, and audit trails.
+*Illustrative values.* The report records processed files and SHA-256 hashes of the text streamed into the output (not necessarily raw on-disk byte hashes if newline decoding changes the bytes). This is useful for auditability, but is not a cryptographic attestation of a complete repository.
 
-## Configuration
+## Development
 
-The desktop application persists preferences in `config.ini` and validates them on startup.
-
-<details>
-<summary><strong>Configuration reference</strong></summary>
-
-| Name | Type | Default | Description |
-| --- | --- | --- | --- |
-| `output_file` | string | `output.txt` | Default extraction output name. |
-| `mode` | string | `inclusion` | `inclusion` or `exclusion`. |
-| `include_hidden` | boolean | `false` | Whether hidden files/folders are traversed. |
-| `exclude_files` | list | configured defaults | Comma-separated file patterns to exclude. |
-| `exclude_folders` | list | configured defaults | Comma-separated folder patterns to exclude. |
-| `theme` | string | `light` | `light` or `dark`. |
-| `batch_size` | integer | `100` | Batch size used for progress behavior. |
-| `max_memory_mb` | integer | `512` | Soft processing safeguard. |
-| `recent_folders` | list | `[]` | Recently selected folders for quick access. |
-
-</details>
-
-## Development and quality gates
-
-Install the development tooling:
+Runtime dependencies are limited to the Python standard library (with Tkinter available for the GUI). To work on the code:
 
 ```bash
-pip install -r requirements-dev.txt
-```
-
-Run the test suite and coverage checks:
-
-```bash
-pytest
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 python tools/coverage_gate.py
 ```
 
-The repository configures branch coverage with an **80% overall floor** and includes a helper that enforces **90% per-file coverage** for tracked modules.
+[GitHub Actions](https://github.com/cortega26/File-Extractor-Pro/actions/workflows/tests.yml) runs the pytest suite on pull requests and `main`, with an **80% overall coverage requirement**. Separate development scripts under `tools/` provide additional coverage, security, and type-check checks; these are **not all part of the current CI workflow**.
 
-Security tooling is also wired into the repository:
-
-```bash
-bandit -ll -r .
-pip-audit
-gitleaks detect --redact
-python tools/security_checks.py
-```
-
-`gitleaks` is installed separately from its official releases; `bandit` and `pip-audit` are included in the development requirements.
-
-The project also contains dedicated tests for the CLI, extraction engine, service layer, configuration, logging, UI behavior, coverage tooling, type-check tooling, and security checks.
-
-## Project structure
+<details>
+<summary><strong>Repository map</strong></summary>
 
 ```text
-File-Extractor-Pro/
-├── file_extractor.py          # Desktop application entry point
-├── ui.py                      # Tkinter GUI
-├── processor.py               # Traversal, filtering, streaming, metrics
-├── config_manager.py          # Persistent validated settings
-├── services/
-│   ├── cli.py                 # Headless command-line interface
-│   └── extractor_service.py   # Background extraction lifecycle
-├── ui_support/                # Themes, status, keyboard, layout helpers
-├── tools/                     # Coverage, security and type-check gates
-└── tests/                     # Automated test suite
+file_extractor.py          Desktop entry point
+ui.py                      Tkinter interface
+processor.py               Discovery, filtering, streaming, metrics
+config_manager.py          Validated desktop preferences
+services/
+  cli.py                   Headless commands
+  preview.py               Read-only selection planning
+  extractor_service.py     Background lifecycle and reports
+ui_support/                Theme, layout, keyboard, status helpers
+tests/                     Automated regression tests
+tools/                     Local validation utilities
+.github/workflows/         CI test workflow
 ```
 
-## Requirements
+</details>
 
-- **Python 3.9+**
-- **Tkinter** for the desktop GUI
-- A filesystem containing UTF-8 text files you want to aggregate
+## Contributing
 
-The core application uses Python's standard library. Development/test tooling has separate dependencies.
-
-## Current scope
-
-File Extractor Pro is intentionally focused: it **aggregates text-file contents**. It is not a PDF/OCR parser, Office-document converter, archive extractor, or binary-file decoder.
-
-Files that cannot be decoded as UTF-8 are skipped and surfaced through the application's status/error reporting.
+Found an issue, a file-selection edge case, or an opportunity to make the workflow simpler? [Open an issue](https://github.com/cortega26/File-Extractor-Pro/issues). Small, test-backed changes are especially welcome.
 
 ## License
 
-This project is declared as **MIT licensed**.
+Distributed under the [MIT License](LICENSE).
 
 ---
 
 <div align="center">
 
-### One folder in. One useful artifact out.
+**Turn scattered files into a useful, inspectable handoff.**
 
-**File Extractor Pro** — local, filterable, repeatable file-content extraction for humans and automation.
-
-[Tooltician.com](https://tooltician.com)
+Part of [Tooltician](https://tooltician.com).
 
 </div>
