@@ -115,7 +115,7 @@ my-project/src/settings.py:
 ...
 ```
 
-Each section keeps its source path so readers can identify where its content came from. The original files are read, not edited.
+Each section keeps its source path so readers can identify where its content came from. Source files are read during traversal; **choose a separate output path** to avoid replacing a source file.
 
 ## What you get
 
@@ -248,7 +248,7 @@ A clear understanding of the current boundaries is part of a trustworthy extract
 | **No secret scanning** | Be careful with credentials, personal information, and hidden config files; review before sharing output. |
 | **Symlinks** | Symlinked files are skipped to avoid unintentionally reading content outside the selected tree. |
 | **Output replacement** | Failed or cancelled runs preserve an existing destination. **Successful runs replace it**, rather than creating a backup. |
-| **Source files** | Original files are not modified by extraction. |
+| **Source files** | Extraction reads selected sources; the configured output path **is** a write target. Do not point it at a file you want to preserve. |
 
 Patterns currently match **file/folder names**, not full Git-style path rules. For a large repository, use explicit exclusions for dependency directories, generated artifacts, and other irrelevant content.
 
