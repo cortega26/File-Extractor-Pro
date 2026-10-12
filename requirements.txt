@@ -1,3 +1,3 @@
-# Fix: testing_ci_coverage_plugin
-# Ensure pytest's coverage options remain available in all environments.
-pytest-cov>=4.1.0
+# File Extractor Pro does not require third-party runtime libraries.
+# Install it from source with: python -m pip install .
+# Tests, coverage and security scanners are in requirements-dev.txt.
