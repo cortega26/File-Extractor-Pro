@@ -123,3 +123,47 @@ def test_preview_invalid_folder_returns_error(tmp_path: Path, capsys) -> None:
 def test_preview_rejects_invalid_format(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         format_preview(_preview(tmp_path, tmp_path / "out.txt"), "xml")
+
+
+def test_failed_extraction_preserves_previous_output(tmp_path: Path, monkeypatch) -> None:
+    """An unexpected failure must not destroy a pre-existing result."""
+    (tmp_path / "one.py").write_text("original", encoding="utf-8")
+    out = tmp_path / "bundle.txt"
+    out.write_text("previous successful output", encoding="utf-8")
+    worker = FileProcessor(Queue())
+
+    def fail_file(*args, **kwargs):
+        raise RuntimeError("simulated failure after opening temporary output")
+
+    monkeypatch.setattr(worker, "process_file", fail_file)
+    with pytest.raises(RuntimeError, match="simulated failure"):
+        worker.extract_files(
+            folder_path=str(tmp_path),
+            mode="inclusion",
+            include_hidden=True,
+            extensions=(".py",),
+            exclude_files=(),
+            exclude_folders=(),
+            output_file_name=str(out),
+        )
+    assert out.read_text(encoding="utf-8") == "previous successful output"
+    assert not list(tmp_path.glob(".file-extractor-*.tmp"))
+
+
+def test_atomic_temporary_file_is_never_included(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("small sample", encoding="utf-8")
+    out = tmp_path / "bundle.txt"
+    worker = FileProcessor(Queue())
+    worker.extract_files(
+        folder_path=str(tmp_path),
+        mode="inclusion",
+        include_hidden=True,
+        extensions=("*",),
+        exclude_files=(),
+        exclude_folders=(),
+        output_file_name=str(out),
+    )
+    result = out.read_text(encoding="utf-8")
+    assert "a.py" in result
+    assert ".file-extractor-" not in result
+    assert not list(tmp_path.glob(".file-extractor-*.tmp"))

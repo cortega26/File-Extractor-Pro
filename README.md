@@ -250,6 +250,8 @@ The processing layer:
 - Tracks processed/skipped files, throughput, queue depth, dropped status messages, large-file warnings, and completion timestamps.
 - Supports cooperative cancellation during traversal and file streaming.
 - Preserves terminal state messages under queue pressure.
+- Stages output in a temporary sibling file and atomically replaces the
+  destination on success; failed or cancelled runs preserve existing output.
 
 That instrumentation is also exposed to the CLI logs, making automated jobs easier to observe and diagnose.
 

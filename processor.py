@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import tempfile
 from copy import deepcopy
 from datetime import datetime
 from queue import Empty, Full, Queue
@@ -523,6 +524,7 @@ class FileProcessor:
         exclude_files: Sequence[str],
         exclude_folders: Sequence[str],
         output_file_abs: str,
+        temp_file_abs: str | None = None,
         is_cancelled: Callable[[], bool] | None = None,
     ) -> Iterable[str]:
         """Yield eligible file paths while respecting cancellation hooks."""
@@ -593,7 +595,7 @@ class FileProcessor:
                 # File symlinks can otherwise expose data outside the selected tree.
                 if os.path.islink(file_path):
                     continue
-                if os.path.abspath(file_path) == output_file_abs:
+                if os.path.abspath(file_path) in (output_file_abs, temp_file_abs):
                     continue
                 if file_path in self.processed_files or file_path in seen_paths:
                     continue
@@ -653,10 +655,21 @@ class FileProcessor:
         if mode_normalised == "inclusion" and not normalised_extensions:
             normalised_extensions = tuple(COMMON_EXTENSIONS)
 
+        temp_output_path: str | None = None
         try:
             output_file_abs = os.path.abspath(output_file_name)
 
-            with open(output_file_name, "w", encoding="utf-8") as output:
+            # Stage output next to its destination for atomic replacement.
+            # Incomplete/failed runs preserve the previous output.
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=os.path.dirname(output_file_abs),
+                prefix=".file-extractor-",
+                suffix=".tmp",
+                delete=False,
+            ) as output:
+                temp_output_path = output.name
                 # All files, including README/specifications, must pass the same
                 # inclusion/exclusion filter. Prioritisation lives in traversal.
                 # Fix: Q-102 - pre-compute eligible files but fall back when memory is scarce.
@@ -672,6 +685,7 @@ class FileProcessor:
                             exclude_files=exclude_files,
                             exclude_folders=exclude_folders,
                             output_file_abs=output_file_abs,
+                            temp_file_abs=temp_output_path,
                             is_cancelled=is_cancelled,
                         )
                     )
@@ -693,6 +707,7 @@ class FileProcessor:
                         exclude_files=exclude_files,
                         exclude_folders=exclude_folders,
                         output_file_abs=output_file_abs,
+                        temp_file_abs=temp_output_path,
                         is_cancelled=is_cancelled,
                     )
                 else:
@@ -729,15 +744,18 @@ class FileProcessor:
                     if progress_callback:
                         progress_callback(processed_count, total_files)
 
-                completion_message = (
-                    f"Extraction complete. Processed {processed_count} files. "
-                    f"Results written to {output_file_name}."
+            # The complete staged output is now safely closed and committed.
+            os.replace(temp_output_path, output_file_abs)
+            temp_output_path = None
+            completion_message = (
+                f"Extraction complete. Processed {processed_count} files. "
+                f"Results written to {output_file_name}."
+            )
+            if skipped_count:
+                completion_message += (
+                    f" Skipped {skipped_count} files due to safeguards."
                 )
-                if skipped_count:
-                    completion_message += (
-                        f" Skipped {skipped_count} files due to safeguards."
-                    )
-                self._enqueue_message("info", completion_message)
+            self._enqueue_message("info", completion_message)
 
         except Exception as exc:
             error_msg = f"Error during extraction: {exc}"
@@ -808,6 +826,12 @@ class FileProcessor:
                     f"skipped={skipped_count}"
                 ),
             )
+        finally:
+            if temp_output_path is not None:
+                try:
+                    os.unlink(temp_output_path)
+                except FileNotFoundError:
+                    pass
 
 
 __all__ = [
