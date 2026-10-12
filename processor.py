@@ -571,7 +571,17 @@ class FileProcessor:
                 )
             ]
 
-            dirs[:] = filtered_dirs
+            # Stable ordering ensures preview and extraction produce the same plan.
+            dirs[:] = sorted(filtered_dirs)
+            filtered_files.sort(
+                key=lambda name: (
+                    0
+                    if os.path.abspath(root) == os.path.abspath(folder_path)
+                    and name in SPECIFICATION_FILES
+                    else 1,
+                    name,
+                )
+            )
 
             for file_name in filtered_files:
                 if is_cancelled and is_cancelled():
@@ -580,6 +590,9 @@ class FileProcessor:
                     )
 
                 file_path = os.path.join(root, file_name)
+                # File symlinks can otherwise expose data outside the selected tree.
+                if os.path.islink(file_path):
+                    continue
                 if os.path.abspath(file_path) == output_file_abs:
                     continue
                 if file_path in self.processed_files or file_path in seen_paths:
@@ -644,13 +657,8 @@ class FileProcessor:
             output_file_abs = os.path.abspath(output_file_name)
 
             with open(output_file_name, "w", encoding="utf-8") as output:
-                skipped_specs = self.process_specifications(
-                    folder_path,
-                    output,
-                    is_cancelled=is_cancelled,
-                )
-                skipped_count += skipped_specs
-
+                # All files, including README/specifications, must pass the same
+                # inclusion/exclusion filter. Prioritisation lives in traversal.
                 # Fix: Q-102 - pre-compute eligible files but fall back when memory is scarce.
                 total_files: int
                 iteration_source: Iterable[str]

@@ -69,6 +69,8 @@ class CLIOptions:
     max_file_size_mb: int | None = None
     poll_interval: float = DEFAULT_POLL_INTERVAL
     log_level: str = "INFO"
+    dry_run: bool = False
+    preview_format: str = "text"
 
 
 # Fix: Q-101 - support nested sequences from repeated --extensions flags.
@@ -156,6 +158,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Folder name patterns to exclude",
     )
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the files that would be extracted without writing anything",
+    )
+    parser.add_argument(
+        "--preview-format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format for --dry-run (default: text)",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=Path("extraction.txt"),
@@ -217,6 +230,8 @@ def parse_arguments(argv: Sequence[str] | None = None) -> CLIOptions:
         max_file_size_mb=args.max_file_size_mb,
         poll_interval=args.poll_interval,
         log_level=args.log_level,
+        dry_run=args.dry_run,
+        preview_format=args.preview_format,
     )
 
 
@@ -284,6 +299,25 @@ def run_cli(
     configure_logger_handler: bool = True,
 ) -> int:
     """Execute the extraction using the service layer and return an exit code."""
+
+    if options.dry_run:
+        from services.preview import build_preview, format_preview
+
+        try:
+            result = build_preview(
+                folder_path=options.folder_path,
+                mode=options.mode,
+                include_hidden=options.include_hidden,
+                extensions=options.extensions,
+                exclude_files=options.exclude_files,
+                exclude_folders=options.exclude_folders,
+                output_file=options.output_file,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"Preview failed: {exc}", file=sys.stderr)
+            return 1
+        print(format_preview(result, options.preview_format))
+        return 0
 
     if configure_logger_handler and not logger.handlers:
         stream_handler = logging.StreamHandler(stream=sys.stdout)
