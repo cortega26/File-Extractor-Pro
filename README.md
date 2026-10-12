@@ -28,15 +28,22 @@ No account, API key, cloud upload, or third-party runtime package is required.
 
 **Requirements:** Python 3.9+; Tkinter is additionally required for the desktop interface.
 
+**Install from source** (no PyPI release is required):
+
 ```bash
 git clone https://github.com/cortega26/File-Extractor-Pro.git
 cd File-Extractor-Pro
+python -m pip install .
 ```
+
+Installation provides two commands you can run from any directory:
+`file-extractor-pro` for the CLI and `file-extractor-pro-gui` for the desktop app.
+The CLI has no Tkinter requirement.
 
 **1. Preview a folder without writing an output file:**
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --extensions py md json yaml \
   --exclude-folders node_modules .venv build dist \
   --dry-run
@@ -45,7 +52,7 @@ python -m services.cli ./my-project \
 **2. Extract those files and generate a JSON report:** remove `--dry-run` and give the output an explicit destination.
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --extensions py md json yaml \
   --exclude-folders node_modules .venv build dist \
   --output ./project-context.txt \
@@ -55,12 +62,12 @@ python -m services.cli ./my-project \
 **Prefer a desktop window?**
 
 ```bash
-python file_extractor.py
+file-extractor-pro-gui
 ```
 
 Choose a folder, tune inclusion/exclusion rules, and select **Extract**. The interface shows progress, supports cancellation, and can generate a report.
 
-> **Tip:** Run commands from the cloned File-Extractor-Pro directory, replacing `./my-project` with a real folder path. The example output paths are illustrative.
+> **Without installing?** Run `python -m services.cli /path/to/project --dry-run` or `python file_extractor.py` directly from the cloned repository. Replace `/path/to/my-project` with your own folder. Example output paths are illustrative. `pip install .` installs this checkout locally; it does **not** imply that a package has been published to PyPI.
 
 ## See it in action
 
@@ -79,7 +86,7 @@ my-project/
 Preview the selection:
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --extensions md py \
   --exclude-folders node_modules .venv \
   --dry-run
@@ -143,7 +150,7 @@ Each section keeps its source path so readers can identify where its content cam
 
 ### Desktop app
 
-Launch with `python file_extractor.py`. The GUI includes:
+Launch with `file-extractor-pro-gui`. The GUI includes:
 
 - Folder picker and recently used folders
 - Inclusion/exclusion modes and custom extensions
@@ -163,7 +170,7 @@ The **read-only preview is currently a CLI feature**, not a GUI button.
 
 ### Command-line interface
 
-Run `python -m services.cli --help` for the current CLI help.
+The installed executable runs from any directory. Run `file-extractor-pro --help` for the current CLI help.
 
 <details>
 <summary><strong>CLI options</strong></summary>
@@ -191,7 +198,7 @@ Run `python -m services.cli --help` for the current CLI help.
 **Get a JSON preview for another tool to consume**
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --extensions py md json \
   --dry-run --preview-format json > selection.json
 ```
@@ -201,7 +208,7 @@ This writes `selection.json` through your **shell's redirection**, not through t
 **Package only Python and Markdown**
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --extensions py md \
   --output ./code-review.txt
 ```
@@ -209,7 +216,7 @@ python -m services.cli ./my-project \
 **Use explicit directory and file exclusions**
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --extensions py md yaml \
   --exclude-folders node_modules .venv dist build \
   --exclude-files "*.generated.py" "*.min.js" \
@@ -219,7 +226,7 @@ python -m services.cli ./my-project \
 **Collect text while excluding certain extension types**
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --mode exclusion --extensions log db \
   --exclude-folders node_modules .venv \
   --output ./filtered-files.txt
@@ -228,7 +235,7 @@ python -m services.cli ./my-project \
 **Inspect every candidate filename, including hidden ones**
 
 ```bash
-python -m services.cli ./my-project \
+file-extractor-pro /path/to/my-project \
   --extensions "*" --include-hidden \
   --exclude-folders .git node_modules .venv \
   --dry-run
@@ -279,9 +286,10 @@ Request a report using `--report extraction-report.json`. The structure resemble
 
 ## Development
 
-Runtime dependencies are limited to the Python standard library (with Tkinter available for the GUI). To work on the code:
+Runtime dependencies are limited to the Python standard library (with Tkinter available for the GUI). The project is packaged with setuptools for **local installation**, not automatically published to PyPI. To work on the code:
 
 ```bash
+python -m pip install -e .
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 python tools/coverage_gate.py
