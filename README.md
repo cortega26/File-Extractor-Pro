@@ -295,6 +295,8 @@ python -m pytest -q
 python tools/coverage_gate.py
 ```
 
+> **Development tooling requires Python 3.11+.** The test suite and development tooling need Python 3.11 or newer — `tests/test_dependencies.py` imports `tomllib` and `mypy.ini` sets `python_version = 3.11` — while the application itself continues to run on Python 3.9+.
+
 [GitHub Actions](https://github.com/cortega26/File-Extractor-Pro/actions/workflows/tests.yml) runs the pytest suite on pull requests and `main`, with an **80% overall coverage requirement**. Separate development scripts under `tools/` provide additional coverage, security, and type-check checks; these are **not all part of the current CI workflow**.
 
 <details>
